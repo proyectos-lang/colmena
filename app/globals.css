@@ -1,0 +1,227 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* EasyCount Brand Theme */
+  --background: #F0F4EF; /* Porcelain */
+  --foreground: #0D1821; /* Ink Black */
+  --card: #FFFFFF;
+  --card-foreground: #0D1821;
+  --popover: #FFFFFF;
+  --popover-foreground: #0D1821;
+  --primary: #344966; /* Yale Blue */
+  --primary-foreground: #FFFFFF;
+  --secondary: #abcde0; /* Sky Blue */
+  --secondary-foreground: #0D1821;
+  --muted: #E8EDE6; /* Porcelain Light */
+  --muted-foreground: #344966;
+  --accent: #abcde0; /* Sky Blue */
+  --accent-foreground: #0D1821;
+  --destructive: #BFCC94; /* Dry Sage - for notifications */
+  --destructive-foreground: #FFFFFF;
+  --border: rgba(171, 205, 224, 0.5); /* Sky Blue with opacity */
+  --input: #FFFFFF;
+  --ring: #BFCC94; /* Dry Sage for focus rings */
+  --chart-1: #344966; /* Yale Blue */
+  --chart-2: #abcde0; /* Sky Blue */
+  --chart-3: #BFCC94; /* Dry Sage */
+  --chart-4: #0D1821; /* Ink Black */
+  --chart-5: #F0F4EF; /* Porcelain */
+  --radius: 0.75rem;
+  /* Sidebar */
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #0D1821;
+  --sidebar-primary: #344966; /* Yale Blue */
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #F0F4EF; /* Porcelain hover */
+  --sidebar-accent-foreground: #0D1821;
+  --sidebar-border: rgba(171, 205, 224, 0.3); /* Sky Blue light */
+  --sidebar-ring: #BFCC94; /* Dry Sage */
+}
+
+.dark {
+  /* EasyCount Dark Theme */
+  --background: #0D1821; /* Ink Black */
+  --foreground: #F0F4EF; /* Porcelain */
+  --card: #1a2633;
+  --card-foreground: #F0F4EF;
+  --popover: #1a2633;
+  --popover-foreground: #F0F4EF;
+  --primary: #abcde0; /* Sky Blue */
+  --primary-foreground: #0D1821;
+  --secondary: #344966; /* Yale Blue */
+  --secondary-foreground: #F0F4EF;
+  --muted: #1a2633;
+  --muted-foreground: #abcde0;
+  --accent: #344966;
+  --accent-foreground: #F0F4EF;
+  --destructive: #BFCC94;
+  --destructive-foreground: #0D1821;
+  --border: rgba(52, 73, 102, 0.6); /* Yale Blue with opacity */
+  --input: #1a2633;
+  --ring: #BFCC94;
+  --chart-1: #abcde0;
+  --chart-2: #344966;
+  --chart-3: #BFCC94;
+  --chart-4: #F0F4EF;
+  --chart-5: #0D1821;
+  --sidebar: #0D1821;
+  --sidebar-foreground: #F0F4EF;
+  --sidebar-primary: #abcde0;
+  --sidebar-primary-foreground: #0D1821;
+  --sidebar-accent: #1a2633;
+  --sidebar-accent-foreground: #F0F4EF;
+  --sidebar-border: rgba(52, 73, 102, 0.4);
+  --sidebar-ring: #BFCC94;
+}
+
+@theme inline {
+  --font-sans: 'Inter', 'Inter Fallback', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback';
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  /* Larger radius for organic feel */
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 8px);
+  --radius-2xl: calc(var(--radius) + 12px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  /* Force white background on all form inputs for legibility */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+  textarea,
+  select,
+  [data-slot='select-trigger'],
+  [data-slot='input'] {
+    background-color: #ffffff !important;
+  }
+  
+  /* EasyCount Typography System */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold tracking-tight;
+    color: #0D1821; /* Ink Black */
+  }
+  h1 {
+    @apply text-3xl sm:text-4xl lg:text-5xl leading-tight;
+  }
+  h2 {
+    @apply text-2xl sm:text-3xl leading-snug;
+  }
+  h3 {
+    @apply text-xl sm:text-2xl leading-snug;
+  }
+  h4 {
+    @apply text-lg sm:text-xl;
+  }
+  h5 {
+    @apply text-base sm:text-lg;
+  }
+  h6 {
+    @apply text-sm sm:text-base;
+  }
+  
+  .dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
+    color: #F0F4EF; /* Porcelain */
+  }
+}
+
+/* EasyCount Component Enhancements */
+@layer components {
+  /* Card Elevation - Soft floating shadows */
+  .card-elevated {
+    @apply shadow-sm hover:shadow-md transition-shadow duration-300;
+    box-shadow: 0 1px 3px 0 rgba(52, 73, 102, 0.1), 0 1px 2px -1px rgba(52, 73, 102, 0.1);
+  }
+  .card-elevated:hover {
+    box-shadow: 0 4px 6px -1px rgba(52, 73, 102, 0.15), 0 2px 4px -2px rgba(52, 73, 102, 0.1);
+  }
+
+  /* Table row alternating colors */
+  .table-striped tbody tr:nth-child(even) {
+    background-color: rgba(171, 205, 224, 0.1); /* Sky Blue subtle */
+  }
+  .table-striped tbody tr {
+    @apply transition-colors duration-200;
+  }
+  .table-striped tbody tr:hover {
+    background-color: rgba(171, 205, 224, 0.2); /* Sky Blue hover */
+  }
+
+  /* Button gradient for primary actions - Yale Blue */
+  .btn-gradient {
+    background: linear-gradient(180deg, #3d5577 0%, #344966 100%);
+    @apply transition-all duration-300;
+  }
+  .btn-gradient:hover {
+    background: linear-gradient(180deg, #4a6688 0%, #344966 100%);
+    @apply shadow-md;
+  }
+
+  /* Input focus states - Dry Sage */
+  .input-easycount:focus {
+    border-color: #BFCC94 !important;
+    box-shadow: 0 0 0 3px rgba(191, 204, 148, 0.35) !important;
+  }
+
+  /* Badge EasyCount styles */
+  .badge-pending {
+    @apply bg-amber-100 text-amber-800 border-amber-200;
+  }
+  .badge-paid {
+    background-color: rgba(191, 204, 148, 0.3); /* Dry Sage */
+    color: #344966;
+    border-color: #BFCC94;
+  }
+  .badge-partial {
+    background-color: rgba(171, 205, 224, 0.3); /* Sky Blue */
+    color: #344966;
+    border-color: #abcde0;
+  }
+
+  /* Modal backdrop blur */
+  .modal-backdrop {
+    @apply backdrop-blur-sm;
+    background-color: rgba(13, 24, 33, 0.5); /* Ink Black */
+  }
+}
