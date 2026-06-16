@@ -147,7 +147,7 @@ function printReciboTermico(
   // de impresoras térmicas (auto = 32000mm que es el máximo del roll del driver).
   // margin: 0 elimina los encabezados/pies que Chrome agrega (URL, fecha, página).
   const numItems     = ventaData.detalles.length
-  const pageHeightMm = Math.max(110, 92 + numItems * 14)
+  const pageHeightMm = Math.max(132, 112 + numItems * 14)
 
   const empresa         = (razonSocial?.nombre_empresa   || 'COLMENA').toUpperCase()
   const nombreComercial =  razonSocial?.nombre_comercial || 'COLMENA HONDURAS S DE RL DE CV'
