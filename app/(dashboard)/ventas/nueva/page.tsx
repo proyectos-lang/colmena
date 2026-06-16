@@ -125,7 +125,9 @@ function printReciboTermico(
   const subtotal   = enc.subtotal ?? 0
   const descPct    = enc.descuento ?? 0
   const descMonto  = subtotal * (descPct / 100)
-  const total      = enc.total_venta ?? 0
+  // La factura siempre muestra el valor que paga el cliente (bruto).
+  // enc.total_venta tiene la comisión bancaria deducida — no se imprime.
+  const total      = +(subtotal - descMonto).toFixed(2)
   const sumaPagos  = pagosDetalle.reduce((s, p) => s + (Number(p.monto_bruto) || 0), 0)
   const cambio     = Math.max(0, sumaPagos - total)
   const metodoPago = pagosDetalle.length > 0
@@ -1060,6 +1062,9 @@ export default function NuevaVentaPage() {
     const descuentoPctPdf = Number(ventaData.encabezado.descuento ?? 0)
     const hasDescuento = descuentoPctPdf > 0
     const descuentoMonto = (ventaData.encabezado.subtotal ?? 0) * (descuentoPctPdf / 100)
+    // Total bruto que paga el cliente (sin deducir comisiones bancarias).
+    // enc.total_venta almacena el neto tras comisiones — no se imprime en factura.
+    const totalFactura = +((ventaData.encabezado.subtotal ?? 0) - descuentoMonto).toFixed(2)
     let rowOffset = 12
     if (hasDescuento) {
       doc.setTextColor(100, 100, 100)
@@ -1077,26 +1082,26 @@ export default function NuevaVentaPage() {
       doc.setLineDashPattern([], 0)
       rowOffset += 12
     }
-    
+
     // ISV
     doc.setTextColor(100, 100, 100)
     doc.setFont("helvetica", "normal")
     doc.text(`ISV incluido (${ventaData.encabezado.porcentaje_impuesto || 15}%)`, pageWidth - 80, totalsY + rowOffset)
     doc.setTextColor(30, 30, 30)
     doc.text(`L ${(ventaData.encabezado.impuesto_total ?? 0).toFixed(2)}`, pageWidth - 20, totalsY + rowOffset, { align: "right" })
-    
+
     // Dotted line
     doc.setDrawColor(180, 180, 180)
     doc.setLineDashPattern([1, 1], 0)
     doc.line(pageWidth - 80, totalsY + rowOffset + 3, pageWidth - 20, totalsY + rowOffset + 3)
     doc.setLineDashPattern([], 0)
-    
-    // Total
+
+    // Total (valor bruto que pagó el cliente)
     doc.setFont("helvetica", "bold")
     doc.setTextColor(30, 30, 30)
     doc.text("Total", pageWidth - 80, totalsY + rowOffset + 14)
     doc.setFontSize(12)
-    doc.text(`L ${(ventaData.encabezado.total_venta ?? 0).toFixed(2)}`, pageWidth - 20, totalsY + rowOffset + 14, { align: "right" })
+    doc.text(`L ${totalFactura.toFixed(2)}`, pageWidth - 20, totalsY + rowOffset + 14, { align: "right" })
     
     // === FOOTER Section ===
     const footerY = pageHeight - 40
