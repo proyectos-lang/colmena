@@ -143,20 +143,29 @@ function printReciboTermico(
       </div>`
   }).join('<div class="line-dash"></div>')
 
-  const empresa         = (razonSocial?.nombre_empresa    || 'COLMENA').toUpperCase()
-  const nombreComercial =  razonSocial?.nombre_comercial  || ''
-  const direccion       =  razonSocial?.direccion         || ''
-  const telefono        =  razonSocial?.telefono          || ''
-  const rtn             =  razonSocial?.documento         || ''
+  // Altura calculada: el @page con tamaño fijo es lo único que funciona con drivers
+  // de impresoras térmicas (auto = 32000mm que es el máximo del roll del driver).
+  // margin: 0 elimina los encabezados/pies que Chrome agrega (URL, fecha, página).
+  const numItems     = ventaData.detalles.length
+  const pageHeightMm = Math.max(170, 130 + numItems * 12)
+
+  // Fallbacks explícitos para que el encabezado siempre muestre aunque el campo
+  // esté vacío en la base de datos.
+  const empresa         = (razonSocial?.nombre_empresa   || 'COLMENA').toUpperCase()
+  const nombreComercial =  razonSocial?.nombre_comercial || 'COLMENA HONDURAS S DE RL DE CV'
+  const direccion       =  razonSocial?.direccion        || 'San Pedro Sula Honduras C. A.'
+  const telefono        =  razonSocial?.telefono         || '+(504) 9491-0754'
+  const rtn             =  razonSocial?.documento        || '05019025183906'
 
   const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <style>
-  /* auto height = browser usa exactamente la altura del contenido (sin espacios en blanco).
-     margin: 0 elimina los encabezados/pies que Chrome agrega por defecto (URL, fecha, página). */
-  @page { size: 80mm auto; margin: 0; }
+  @page {
+    size: 80mm ${pageHeightMm}mm;
+    margin: 0 !important;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     width: 80mm;
@@ -192,10 +201,10 @@ function printReciboTermico(
 </head>
 <body>
   <div class="emp-title">${empresa}</div>
-  ${nombreComercial ? `<div class="emp-sub">${nombreComercial}</div>` : ''}
-  ${direccion       ? `<div class="emp-sub">${direccion}</div>`       : ''}
-  ${telefono        ? `<div class="emp-sub">Tel. ${telefono}</div>`   : ''}
-  ${rtn             ? `<div class="emp-sub">RTN: ${rtn}</div>`        : ''}
+  <div class="emp-sub">${nombreComercial}</div>
+  <div class="emp-sub">${direccion}</div>
+  <div class="emp-sub">Tel. ${telefono}</div>
+  <div class="emp-sub">RTN: ${rtn}</div>
 
   <div class="line-solid"></div>
   <div class="factura-num">ORDEN DE PEDIDO #*${enc.numero_factura}</div>
@@ -240,25 +249,25 @@ function printReciboTermico(
 </body>
 </html>`
 
-  // Iframe fuera de pantalla con ancho real (80mm) para renderizar el contenido.
-  // La altura del papel la controla el @page { size: 80mm auto } — el browser
-  // usa exactamente lo que ocupa el contenido, sin espacios en blanco extra.
+  // Cargar via blob URL para que Chrome parsee el @page CSS correctamente antes
+  // de imprimir. Con document.write() el driver puede ignorar el tamaño de página.
+  const blob    = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const blobUrl = URL.createObjectURL(blob)
+
   const iframe = document.createElement('iframe')
-  iframe.style.cssText = 'position:fixed;left:-500px;top:0;width:302px;height:800px;border:0;visibility:hidden;pointer-events:none;z-index:-9999;'
+  iframe.style.cssText = 'position:fixed;left:-600px;top:0;width:302px;height:800px;border:0;visibility:hidden;pointer-events:none;z-index:-9999;'
   document.body.appendChild(iframe)
 
-  const iDoc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document)
-  if (!iDoc) { document.body.removeChild(iframe); return }
+  iframe.onload = () => {
+    setTimeout(() => {
+      iframe.contentWindow?.focus()
+      iframe.contentWindow?.print()
+      URL.revokeObjectURL(blobUrl)
+      setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe) }, 3000)
+    }, 400)
+  }
 
-  iDoc.open()
-  iDoc.write(html)
-  iDoc.close()
-
-  setTimeout(() => {
-    iframe.contentWindow?.focus()
-    iframe.contentWindow?.print()
-    setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe) }, 3000)
-  }, 500)
+  iframe.src = blobUrl
 }
 
 export default function NuevaVentaPage() {
