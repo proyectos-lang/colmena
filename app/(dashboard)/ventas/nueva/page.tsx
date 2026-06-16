@@ -147,7 +147,7 @@ function printReciboTermico(
   // de impresoras térmicas (auto = 32000mm que es el máximo del roll del driver).
   // margin: 0 elimina los encabezados/pies que Chrome agrega (URL, fecha, página).
   const numItems     = ventaData.detalles.length
-  const pageHeightMm = Math.max(170, 130 + numItems * 12)
+  const pageHeightMm = Math.max(140, 115 + numItems * 14)
 
   // Fallbacks explícitos para que el encabezado siempre muestre aunque el campo
   // esté vacío en la base de datos.
@@ -170,33 +170,35 @@ function printReciboTermico(
   html, body {
     width: 80mm;
     margin: 0;
-    padding: 3mm 3mm 5mm 3mm;
+    /* 2px extra a la izquierda para compensar el pequeño corte en el borde derecho */
+    padding: 3mm 2mm 5mm 4mm;
     font-family: 'Courier New', Courier, monospace;
-    font-size: 10.5px;
+    font-size: 12px;
+    line-height: 1.6;
     color: #000;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  .emp-title  { font-size: 18px; font-weight: 900; text-align: center; letter-spacing: 1px; margin-bottom: 1mm; }
-  .emp-sub    { font-size: 9.5px; text-align: center; line-height: 1.45; }
-  .line-solid  { border-top: 1px solid #000; margin: 3px 0; }
-  .line-dash   { border-top: 1px dashed #000; margin: 3px 0; }
-  .line-double { border-top: 3px double #000; margin: 3px 0; }
-  .factura-num { font-size: 13px; font-weight: 900; text-align: center; padding: 2px 0; }
-  .info-row   { display: flex; justify-content: space-between; font-size: 10px; margin: 1px 0; gap: 3px; }
+  .emp-title  { font-size: 20px; font-weight: 900; text-align: center; letter-spacing: 1px; margin-bottom: 2mm; }
+  .emp-sub    { font-size: 11px; text-align: center; line-height: 1.7; }
+  .line-solid  { border-top: 1px solid #000; margin: 4px 0; }
+  .line-dash   { border-top: 1px dashed #000; margin: 4px 0; }
+  .line-double { border-top: 3px double #000; margin: 4px 0; }
+  .factura-num { font-size: 14px; font-weight: 900; text-align: center; padding: 3px 0; }
+  .info-row   { display: flex; justify-content: space-between; font-size: 11px; margin: 2px 0; gap: 3px; line-height: 1.55; }
   .info-row strong { white-space: nowrap; }
   .info-row .val { text-align: right; word-break: break-word; }
-  .contado    { font-size: 10px; text-align: center; margin: 2px 0; }
-  .col-hdr    { display: flex; justify-content: space-between; font-size: 9px; font-weight: bold; padding: 1px 0; }
-  .prod-name  { font-weight: bold; font-size: 10px; margin-top: 3px; }
-  .prod-line  { display: flex; justify-content: space-between; font-size: 10px; padding-left: 6px; margin-bottom: 2px; }
-  .tot-row    { display: flex; justify-content: space-between; font-size: 10.5px; margin: 2px 0; }
-  .tot-final  { font-size: 14px; font-weight: 900; }
-  .monto-letras { font-size: 9px; text-align: center; font-style: italic; margin: 3px 2px; }
-  .firma-wrap { text-align: center; margin-top: 10px; }
-  .firma-line { border-top: 1px solid #000; width: 50mm; margin: 0 auto 3px; }
-  .firma-lbl  { font-size: 10px; }
-  .footer     { text-align: center; font-size: 9px; margin-top: 6px; font-style: italic; }
+  .contado    { font-size: 11px; text-align: center; margin: 3px 0; }
+  .col-hdr    { display: flex; justify-content: space-between; font-size: 10px; font-weight: bold; padding: 2px 0; }
+  .prod-name  { font-weight: bold; font-size: 11px; margin-top: 4px; }
+  .prod-line  { display: flex; justify-content: space-between; font-size: 11px; padding-left: 6px; margin-bottom: 3px; }
+  .tot-row    { display: flex; justify-content: space-between; font-size: 12px; margin: 3px 0; }
+  .tot-final  { font-size: 15px; font-weight: 900; }
+  .monto-letras { font-size: 10px; text-align: center; font-style: italic; margin: 4px 2px; line-height: 1.5; }
+  .firma-wrap { text-align: center; margin-top: 12px; }
+  .firma-line { border-top: 1px solid #000; width: 50mm; margin: 0 auto 4px; }
+  .firma-lbl  { font-size: 11px; }
+  .footer     { text-align: center; font-size: 10px; margin-top: 8px; font-style: italic; }
 </style>
 </head>
 <body>
