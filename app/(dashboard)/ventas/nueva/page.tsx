@@ -143,12 +143,6 @@ function printReciboTermico(
       </div>`
   }).join('<div class="line-dash"></div>')
 
-  // Altura calculada: el @page con tamaño fijo es lo único que funciona con drivers
-  // de impresoras térmicas (auto = 32000mm que es el máximo del roll del driver).
-  // margin: 0 elimina los encabezados/pies que Chrome agrega (URL, fecha, página).
-  const numItems     = ventaData.detalles.length
-  const pageHeightMm = Math.max(132, 112 + numItems * 14)
-
   const empresa         = (razonSocial?.nombre_empresa   || 'COLMENA').toUpperCase()
   const nombreComercial =  razonSocial?.nombre_comercial || 'COLMENA HONDURAS S DE RL DE CV'
   const direccion       =  razonSocial?.direccion        || 'San Pedro Sula Honduras C. A.'
@@ -159,11 +153,11 @@ function printReciboTermico(
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<style id="page-style">
+  /* La altura se actualiza dinámicamente después de medir el contenido real */
+  @page { size: 80mm 500mm; margin: 0 !important; }
+</style>
 <style>
-  @page {
-    size: 80mm ${pageHeightMm}mm;
-    margin: 0 !important;
-  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { margin: 0; padding: 0; }
   body {
@@ -251,22 +245,34 @@ function printReciboTermico(
 </body>
 </html>`
 
-  // Cargar via blob URL para que Chrome parsee el @page CSS correctamente antes
-  // de imprimir. Con document.write() el driver puede ignorar el tamaño de página.
+  // Cargamos via blob URL para que Chrome parsee el CSS completamente.
+  // iframe height:1px es clave: así body.scrollHeight devuelve la altura REAL
+  // del contenido (no la del iframe). Con height grande scrollHeight = max(contenido, iframe).
   const blob    = new Blob([html], { type: 'text/html;charset=utf-8' })
   const blobUrl = URL.createObjectURL(blob)
 
   const iframe = document.createElement('iframe')
-  iframe.style.cssText = 'position:fixed;left:-600px;top:0;width:302px;height:800px;border:0;visibility:hidden;pointer-events:none;z-index:-9999;'
+  iframe.style.cssText = 'position:fixed;left:-600px;top:0;width:302px;height:1px;border:0;visibility:hidden;pointer-events:none;z-index:-9999;'
   document.body.appendChild(iframe)
 
   iframe.onload = () => {
+    // Esperar a que el layout se estabilice antes de medir
     setTimeout(() => {
-      iframe.contentWindow?.focus()
-      iframe.contentWindow?.print()
-      URL.revokeObjectURL(blobUrl)
-      setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe) }, 3000)
-    }, 400)
+      const iDoc = iframe.contentDocument
+      const scrollH  = iDoc?.body?.scrollHeight ?? 400
+      // px → mm (96dpi) + 6mm de margen de seguridad para el corte
+      const heightMm = Math.ceil(scrollH * 25.4 / 96) + 6
+      // Actualizar el @page con la altura exacta medida
+      const pageStyle = iDoc?.getElementById('page-style')
+      if (pageStyle) pageStyle.textContent = `@page { size: 80mm ${heightMm}mm; margin: 0 !important; }`
+
+      setTimeout(() => {
+        iframe.contentWindow?.focus()
+        iframe.contentWindow?.print()
+        URL.revokeObjectURL(blobUrl)
+        setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe) }, 3000)
+      }, 150)
+    }, 600)
   }
 
   iframe.src = blobUrl
