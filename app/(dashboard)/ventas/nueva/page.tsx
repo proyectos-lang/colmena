@@ -105,6 +105,10 @@ function numberToWordsHN(amount: number): string {
 // ── Impresión de recibo térmico 80 mm ─────────────────────────────────────
 type RazonSocialPdf = { nombre_empresa: string; nombre_comercial: string; documento: string; direccion: string; telefono: string; correo: string } | null
 
+// Ancho imprimible = 80mm - 6mm márgenes laterales (3mm c/lado)
+const RECEIPT_WIDTH_PX = 283 // 74mm a 96 dpi
+const MM_PER_PX = 25.4 / 96  // factor de conversión CSS-px → mm
+
 function printReciboTermico(
   ventaData: { encabezado: VentaEncabezado; detalles: (VentaDetalle & { producto_nombre?: string })[] },
   cliente: { nombre?: string; rtn?: string } | undefined,
@@ -143,34 +147,48 @@ function printReciboTermico(
 
   const empresa = (razonSocial?.nombre_empresa || 'COLMENA').toUpperCase()
 
+  // El @page-size se inyecta dinámicamente después de medir el alto real del contenido.
+  // Así el papel solo tiene el largo exacto del ticket, sin espacio en blanco final.
   const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<style id="page-size-style">
+  /* placeholder — se sobreescribe dinámicamente tras medir scrollHeight */
+  @page { size: 80mm 400mm; margin: 0; }
+</style>
 <style>
-  @page { size: 80mm auto; margin: 2mm 3mm; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Courier New', Courier, monospace; font-size: 10.5px; width: 74mm; color: #000; }
-  .emp-title { font-size: 17px; font-weight: 900; text-align: center; letter-spacing: 1px; }
-  .emp-sub   { font-size: 9.5px; text-align: center; line-height: 1.4; }
+  html, body {
+    width: 74mm;
+    height: auto;
+    margin: 0;
+    padding: 2mm 3mm 4mm 3mm;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 10.5px;
+    color: #000;
+    overflow: hidden;
+  }
+  .emp-title  { font-size: 17px; font-weight: 900; text-align: center; letter-spacing: 1px; }
+  .emp-sub    { font-size: 9.5px; text-align: center; line-height: 1.4; }
   .line-solid  { border-top: 1px solid #000; margin: 4px 0; }
   .line-dash   { border-top: 1px dashed #000; margin: 3px 0; }
   .line-double { border-top: 3px double #000; margin: 4px 0; }
   .factura-num { font-size: 13px; font-weight: 900; text-align: center; padding: 3px 0; }
-  .info-row  { display: flex; justify-content: space-between; font-size: 10px; margin: 1.5px 0; gap: 4px; }
+  .info-row   { display: flex; justify-content: space-between; font-size: 10px; margin: 1.5px 0; gap: 4px; }
   .info-row strong { white-space: nowrap; }
   .info-row .val { text-align: right; }
-  .contado   { font-size: 10px; text-align: center; margin: 2px 0; }
-  .col-hdr   { display: flex; justify-content: space-between; font-size: 9px; font-weight: bold; padding: 2px 0; }
-  .prod-name { font-weight: bold; font-size: 10px; margin-top: 4px; }
-  .prod-line { display: flex; justify-content: space-between; font-size: 10px; padding-left: 8px; margin-bottom: 3px; }
-  .tot-row   { display: flex; justify-content: space-between; font-size: 10.5px; margin: 2px 0; }
-  .tot-final { font-size: 14px; font-weight: 900; }
+  .contado    { font-size: 10px; text-align: center; margin: 2px 0; }
+  .col-hdr    { display: flex; justify-content: space-between; font-size: 9px; font-weight: bold; padding: 2px 0; }
+  .prod-name  { font-weight: bold; font-size: 10px; margin-top: 4px; }
+  .prod-line  { display: flex; justify-content: space-between; font-size: 10px; padding-left: 8px; margin-bottom: 3px; }
+  .tot-row    { display: flex; justify-content: space-between; font-size: 10.5px; margin: 2px 0; }
+  .tot-final  { font-size: 14px; font-weight: 900; }
   .monto-letras { font-size: 9px; text-align: center; font-style: italic; margin: 4px 2px; }
   .firma-wrap { text-align: center; margin-top: 12px; }
   .firma-line { border-top: 1px solid #000; width: 50mm; margin: 0 auto 3px; }
   .firma-lbl  { font-size: 10px; }
-  .footer { text-align: center; font-size: 9px; margin-top: 10px; font-style: italic; }
+  .footer     { text-align: center; font-size: 9px; margin-top: 8px; font-style: italic; }
 </style>
 </head>
 <body>
@@ -224,8 +242,10 @@ function printReciboTermico(
 </body>
 </html>`
 
+  // Iframe posicionado fuera de pantalla con ancho real (74mm) para que el
+  // navegador calcule correctamente el scrollHeight del contenido.
   const iframe = document.createElement('iframe')
-  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none;'
+  iframe.style.cssText = `position:fixed;left:-400px;top:0;width:${RECEIPT_WIDTH_PX}px;height:2000px;border:0;visibility:hidden;pointer-events:none;z-index:-9999;`
   document.body.appendChild(iframe)
 
   const iDoc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document)
@@ -235,11 +255,20 @@ function printReciboTermico(
   iDoc.write(html)
   iDoc.close()
 
+  // Esperar a que el DOM renderice y luego medir la altura real del contenido.
+  // Con esa medida se sobreescribe el @page size para que el papel tenga
+  // exactamente el largo del ticket sin espacio en blanco al final.
   setTimeout(() => {
+    const scrollH   = iDoc.body?.scrollHeight || 500
+    const heightMm  = Math.ceil(scrollH * MM_PER_PX) + 4  // +4 mm de margen inferior
+    const pageStyle = iDoc.getElementById('page-size-style')
+    if (pageStyle) pageStyle.textContent = `@page { size: 80mm ${heightMm}mm; margin: 0; }`
+
     iframe.contentWindow?.focus()
     iframe.contentWindow?.print()
-    setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe) }, 2000)
-  }, 600)
+
+    setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe) }, 3000)
+  }, 700)
 }
 
 export default function NuevaVentaPage() {
