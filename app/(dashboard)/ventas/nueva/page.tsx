@@ -147,7 +147,7 @@ function printReciboTermico(
   // de impresoras térmicas (auto = 32000mm que es el máximo del roll del driver).
   // margin: 0 elimina los encabezados/pies que Chrome agrega (URL, fecha, página).
   const numItems     = ventaData.detalles.length
-  const pageHeightMm = Math.max(140, 115 + numItems * 14)
+  const pageHeightMm = Math.max(140, 122 + numItems * 14)
 
   // Fallbacks explícitos para que el encabezado siempre muestre aunque el campo
   // esté vacío en la base de datos.
@@ -167,11 +167,13 @@ function printReciboTermico(
     margin: 0 !important;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body {
+  html { margin: 0; padding: 0; }
+  body {
     width: 80mm;
     margin: 0;
-    /* 2px extra a la izquierda para compensar el pequeño corte en el borde derecho */
-    padding: 3mm 2mm 5mm 4mm;
+    /* top mínimo (1mm) para no cortar el borde, right reducido para compensar
+       el pequeño corte en el borde derecho moviendo 2px a la izquierda */
+    padding: 1mm 2mm 5mm 4mm;
     font-family: 'Courier New', Courier, monospace;
     font-size: 12px;
     line-height: 1.6;
