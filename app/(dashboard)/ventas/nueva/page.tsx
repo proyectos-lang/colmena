@@ -105,12 +105,6 @@ function numberToWordsHN(amount: number): string {
 // ── Impresión de recibo térmico 80 mm ─────────────────────────────────────
 type RazonSocialPdf = { nombre_empresa: string; nombre_comercial: string; documento: string; direccion: string; telefono: string; correo: string } | null
 
-// Altura base del ticket (encabezado + pie fijos, sin artículos) ≈ 145 mm
-// Cada artículo adicional suma ~12 mm. Mínimo garantizado: 170 mm.
-const RECEIPT_BASE_MM  = 145
-const RECEIPT_ITEM_MM  = 12
-const RECEIPT_MIN_MM   = 170
-
 function printReciboTermico(
   ventaData: { encabezado: VentaEncabezado; detalles: (VentaDetalle & { producto_nombre?: string })[] },
   cliente: { nombre?: string; rtn?: string } | undefined,
@@ -136,11 +130,6 @@ function printReciboTermico(
     ? pagosDetalle.map(p => p.metodo_pago).join(' + ')
     : 'Efectivo'
 
-  // Alto del papel calculado matemáticamente para que sea exactamente el
-  // largo del ticket. Se evita medir el DOM (causa páginas enormes).
-  const numItems    = ventaData.detalles.length
-  const pageHeightMm = Math.max(RECEIPT_MIN_MM, RECEIPT_BASE_MM + numItems * RECEIPT_ITEM_MM)
-
   const lineasHtml = ventaData.detalles.map(d => {
     const nombre   = (d.producto_nombre || '').toUpperCase()
     const cant     = d.cantidad ?? 0
@@ -165,15 +154,19 @@ function printReciboTermico(
 <head>
 <meta charset="UTF-8">
 <style>
-  @page { size: 80mm ${pageHeightMm}mm; margin: 0; }
+  /* auto height = browser usa exactamente la altura del contenido (sin espacios en blanco).
+     margin: 0 elimina los encabezados/pies que Chrome agrega por defecto (URL, fecha, página). */
+  @page { size: 80mm auto; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
-    width: 74mm;
+    width: 80mm;
     margin: 0;
     padding: 3mm 3mm 5mm 3mm;
     font-family: 'Courier New', Courier, monospace;
     font-size: 10.5px;
     color: #000;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   .emp-title  { font-size: 18px; font-weight: 900; text-align: center; letter-spacing: 1px; margin-bottom: 1mm; }
   .emp-sub    { font-size: 9.5px; text-align: center; line-height: 1.45; }
@@ -247,9 +240,11 @@ function printReciboTermico(
 </body>
 </html>`
 
-  // Iframe mínimo — el @page size ya está fijo en el HTML, no necesitamos medir DOM.
+  // Iframe fuera de pantalla con ancho real (80mm) para renderizar el contenido.
+  // La altura del papel la controla el @page { size: 80mm auto } — el browser
+  // usa exactamente lo que ocupa el contenido, sin espacios en blanco extra.
   const iframe = document.createElement('iframe')
-  iframe.style.cssText = 'position:fixed;left:-500px;top:0;width:302px;height:10px;border:0;visibility:hidden;pointer-events:none;z-index:-9999;'
+  iframe.style.cssText = 'position:fixed;left:-500px;top:0;width:302px;height:800px;border:0;visibility:hidden;pointer-events:none;z-index:-9999;'
   document.body.appendChild(iframe)
 
   const iDoc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document)
