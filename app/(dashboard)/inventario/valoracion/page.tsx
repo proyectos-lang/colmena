@@ -202,6 +202,10 @@ export default function ValoracionPage() {
     })
 
     const ws = XLSX.utils.json_to_sheet(data)
+    ws["!cols"] = [
+      { wch: 16 }, { wch: 32 }, { wch: 22 }, { wch: 12 },
+      { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 14 },
+    ]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Valoracion")
     XLSX.writeFile(wb, `Valoracion_Inventario_${new Date().toISOString().split("T")[0]}.xlsx`)
@@ -388,9 +392,21 @@ export default function ValoracionPage() {
       <Card className="bg-white/70 backdrop-blur-sm border-stone-200 shadow-sm">
         <CardHeader className="border-b border-stone-200">
           <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-            <div>
-              <CardTitle className="text-lg">Detalle de Productos</CardTitle>
-              <CardDescription>Existencias con desglose por almacen</CardDescription>
+            <div className="flex items-start justify-between gap-3 flex-1">
+              <div>
+                <CardTitle className="text-lg">Detalle de Productos</CardTitle>
+                <CardDescription>Existencias con desglose por almacen — {productosFiltrados.length} productos</CardDescription>
+              </div>
+              <Button
+                onClick={exportToExcel}
+                variant="outline"
+                size="sm"
+                className="gap-2 shrink-0"
+                disabled={productosFiltrados.length === 0}
+              >
+                <Download className="h-4 w-4" />
+                Descargar Excel
+              </Button>
             </div>
 
             {/* Filtros */}

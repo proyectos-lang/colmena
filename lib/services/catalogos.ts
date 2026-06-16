@@ -146,6 +146,66 @@ export async function getProductos(): Promise<{ data: Producto[]; error: string 
   }
 }
 
+export interface BuscarProductosOpts {
+  categoriaId?: number | null
+  marcaId?: number | null
+  emprendimientoId?: number | null
+  soloTiendaPropia?: boolean
+  limit?: number
+}
+
+/**
+ * Búsqueda server-side de productos con filtros opcionales.
+ * Devuelve máximo `limit` resultados (default 80).
+ * Soporta 6000+ artículos sin degradación de rendimiento.
+ */
+export async function buscarProductos(
+  query: string,
+  opts?: BuscarProductosOpts
+): Promise<{ data: Producto[]; error: string | null }> {
+  if (!isSupabaseConfigured()) return { data: [], error: null }
+  const supabase = createClient()
+  if (!supabase) return { data: [], error: 'Cliente no disponible' }
+
+  const limit = opts?.limit ?? 80
+
+  try {
+    let q = supabase
+      .from('productos')
+      .select('*, marcas(nombre), categorias(nombre), emprendimientos(nombre)')
+      .order('nombre', { ascending: true })
+      .limit(limit)
+
+    if (query.trim()) {
+      q = q.or(`nombre.ilike.%${query.trim()}%,codigo_barras.ilike.%${query.trim()}%`)
+    }
+    if (opts?.categoriaId != null) q = q.eq('categoria_id', opts.categoriaId)
+    if (opts?.marcaId != null) q = q.eq('marca_id', opts.marcaId)
+    if (opts?.soloTiendaPropia) {
+      q = q.is('emprendimiento_id', null)
+    } else if (opts?.emprendimientoId != null) {
+      q = q.eq('emprendimiento_id', opts.emprendimientoId)
+    }
+
+    const { data, error } = await q
+    if (error) return { data: [], error: error.message }
+
+    const productos = (data || []).map((p: any) => ({
+      ...p,
+      marca_nombre: p.marcas?.nombre || null,
+      categoria_nombre: p.categorias?.nombre || null,
+      subcategoria_nombre: null,
+      emprendimiento_nombre: p.emprendimientos?.nombre || null,
+      marcas: undefined,
+      categorias: undefined,
+      emprendimientos: undefined,
+    }))
+    return { data: productos, error: null }
+  } catch {
+    return { data: [], error: 'Error de conexion' }
+  }
+}
+
 export async function saveProducto(
   producto: Producto,
   isNew: boolean

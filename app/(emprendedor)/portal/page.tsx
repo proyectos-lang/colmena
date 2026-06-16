@@ -40,8 +40,15 @@ import {
   BarChart2,
   Star,
   Trophy,
+  Bell,
 } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 /* ─── Animated counter ───────────────────────────────────────── */
 function useCountUp(target: number, duration = 1300, trigger = true) {
@@ -106,12 +113,15 @@ export default function DashboardPage() {
   const [loading, setLoading]     = React.useState(true)
   const [chartMode, setChartMode] = React.useState<"dia" | "mes">("dia")
   const [ready, setReady]         = React.useState(false)
+  const [ventasNuevas, setVentasNuevas] = React.useState<VentaEmprendedor[]>([])
+  const [showVentasModal, setShowVentasModal] = React.useState(false)
 
   React.useEffect(() => {
     if (!emprendedor) return
     const hoy   = new Date()
     const desde = format(subDays(hoy, 29), "yyyy-MM-dd") + "T00:00:00"
     const hasta = format(hoy, "yyyy-MM-dd") + "T23:59:59"
+    const storageKey = `emprendedor_last_visit_${emprendedor.emprendimientoId}`
 
     Promise.all([
       getVentasByEmprendimiento(emprendedor.emprendimientoId, desde, hasta),
@@ -123,6 +133,17 @@ export default function DashboardPage() {
       setPendientes(p.filter((x) => x.estado === "pendiente"))
       setLoading(false)
       setTimeout(() => setReady(true), 80)
+
+      // Detectar ventas nuevas desde la última visita
+      const lastVisit = localStorage.getItem(storageKey)
+      if (lastVisit) {
+        const nuevas = v.filter((venta) => venta.fecha_venta > lastVisit)
+        if (nuevas.length > 0) {
+          setVentasNuevas(nuevas)
+          setShowVentasModal(true)
+        }
+      }
+      localStorage.setItem(storageKey, new Date().toISOString())
     })
   }, [emprendedor])
 
@@ -164,6 +185,22 @@ export default function DashboardPage() {
   const maxQty        = topProductos[0]?.cantidad || 1
   const stockOrdenado = [...stock].sort((a, b) => a.stock_total - b.stock_total).slice(0, 10)
 
+  /* ─── Modal ventas nuevas ──────────────────────────────────── */
+  const facturasNuevas = React.useMemo(() => {
+    const map: Record<string, { numero: string; fecha: string; items: VentaEmprendedor[]; total: number }> = {}
+    ventasNuevas.forEach((v) => {
+      if (!map[v.numero_factura]) {
+        map[v.numero_factura] = { numero: v.numero_factura, fecha: v.fecha_venta, items: [], total: 0 }
+      }
+      map[v.numero_factura].items.push(v)
+      map[v.numero_factura].total += v.subtotal
+    })
+    return Object.values(map).sort((a, b) => b.fecha.localeCompare(a.fecha))
+  }, [ventasNuevas])
+
+  const totalNuevas   = ventasNuevas.reduce((s, v) => s + v.subtotal, 0)
+  const unidadesNuevas = ventasNuevas.reduce((s, v) => s + v.cantidad, 0)
+
   /* ─── Counters ─────────────────────────────────────────────── */
   const cV = useCountUp(Math.round(totalVentas),   1400, ready)
   const cU = useCountUp(totalUnidades,             1200, ready)
@@ -173,6 +210,91 @@ export default function DashboardPage() {
   /* ═══ Render ════════════════════════════════════════════════ */
   return (
     <>
+      {/* ── Modal: ventas nuevas ──────────────────────────────── */}
+      <Dialog open={showVentasModal} onOpenChange={setShowVentasModal}>
+        <DialogContent className="max-w-md max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader className="shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl"
+                style={{ background: "rgba(212,165,116,0.15)" }}>
+                <Bell className="h-5 w-5" style={{ color: "#C07A5C" }} />
+              </div>
+              <div>
+                <DialogTitle className="text-base font-semibold text-stone-800">
+                  ¡Ventas nuevas registradas!
+                </DialogTitle>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  Desde tu última visita · {facturasNuevas.length} {facturasNuevas.length === 1 ? "factura" : "facturas"}
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {/* Resumen KPIs */}
+          <div className="shrink-0 grid grid-cols-2 gap-3 py-3 border-y border-stone-100">
+            <div className="rounded-xl p-3 text-center" style={{ background: "rgba(212,165,116,0.08)" }}>
+              <p className="text-xs text-stone-500 mb-1">Total vendido</p>
+              <p className="text-lg font-extrabold text-stone-800">{fmoney(totalNuevas)}</p>
+            </div>
+            <div className="rounded-xl p-3 text-center" style={{ background: "rgba(191,204,148,0.12)" }}>
+              <p className="text-xs text-stone-500 mb-1">Unidades</p>
+              <p className="text-lg font-extrabold text-stone-800">{unidadesNuevas.toLocaleString()}</p>
+            </div>
+          </div>
+
+          {/* Lista de facturas */}
+          <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+            {facturasNuevas.slice(0, 20).map((f) => (
+              <div key={f.numero} className="rounded-xl border border-stone-100 bg-stone-50/60 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-stone-700 font-mono">
+                    {f.numero || "—"}
+                  </span>
+                  <span className="text-xs text-stone-400">
+                    {f.fecha ? format(parseISO(f.fecha), "d MMM, HH:mm", { locale: es }) : "—"}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {f.items.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between text-xs">
+                      <span className="text-stone-600 truncate max-w-[180px]">{item.producto_nombre}</span>
+                      <span className="shrink-0 ml-2 text-stone-500">
+                        {item.cantidad}× <span className="font-semibold text-stone-700">{fmoney(item.subtotal)}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 flex justify-end">
+                  <span className="text-xs font-bold" style={{ color: "#C07A5C" }}>Total: {fmoney(f.total)}</span>
+                </div>
+              </div>
+            ))}
+            {facturasNuevas.length > 20 && (
+              <p className="text-center text-xs text-stone-400 py-1">
+                +{facturasNuevas.length - 20} facturas más — ve a Ventas para el detalle completo
+              </p>
+            )}
+          </div>
+
+          {/* Acciones */}
+          <div className="shrink-0 pt-3 flex gap-2">
+            <button
+              onClick={() => setShowVentasModal(false)}
+              className="flex-1 rounded-xl py-2.5 text-sm font-medium transition-colors"
+              style={{ background: "rgba(146,64,14,0.08)", color: "#92400e" }}
+            >
+              Entendido
+            </button>
+            <Link href="/portal/ventas" className="flex-1" onClick={() => setShowVentasModal(false)}>
+              <button className="w-full rounded-xl py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+                style={{ background: "#C07A5C" }}>
+                Ver en Ventas →
+              </button>
+            </Link>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <style>{`
         @keyframes orb-drift {
           0%,100% { transform: translate(0,0) scale(1); }

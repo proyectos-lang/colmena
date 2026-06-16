@@ -35,7 +35,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useToast } from "@/hooks/use-toast"
-import { getClientes, getProductos, getAlmacenes, getLocalizaciones, getMarcas, getCategorias, saveCliente, type Cliente, type Producto, type Almacen, type Localizacion, type Marca, type Categoria } from "@/lib/services/catalogos"
+import { getClientes, getAlmacenes, getLocalizaciones, getMarcas, getCategorias, buscarProductos, saveCliente, type Cliente, type Producto, type Almacen, type Localizacion, type Marca, type Categoria } from "@/lib/services/catalogos"
 import { getEmprendimientos, type Emprendimiento } from "@/lib/services/emprendimientos"
 import { ProductCatalog } from "./product-catalog"
 import { getStockMultipleProducts } from "@/lib/services/inventario"
@@ -61,6 +61,185 @@ interface LineaVenta {
   subtotal: number
   utilidad_linea: number
   stock_disponible: number
+}
+
+// ── Número a letras (lempiras hondureños) ──────────────────────────────────
+function numberToWordsHN(amount: number): string {
+  const ones = ['','UNO','DOS','TRES','CUATRO','CINCO','SEIS','SIETE','OCHO','NUEVE',
+                 'DIEZ','ONCE','DOCE','TRECE','CATORCE','QUINCE','DIECISÉIS','DIECISIETE','DIECIOCHO','DIECINUEVE']
+  const tens = ['','','VEINTE','TREINTA','CUARENTA','CINCUENTA','SESENTA','SETENTA','OCHENTA','NOVENTA']
+  const hundreds = ['','CIEN','DOSCIENTOS','TRESCIENTOS','CUATROCIENTOS','QUINIENTOS','SEISCIENTOS','SETECIENTOS','OCHOCIENTOS','NOVECIENTOS']
+
+  function chunk(n: number): string {
+    if (n === 0) return ''
+    let r = ''
+    if (n >= 100) {
+      if (n === 100) { r += 'CIEN'; n = 0 }
+      else { r += hundreds[Math.floor(n / 100)] + ' '; n %= 100 }
+    }
+    if (n >= 20) {
+      r += tens[Math.floor(n / 10)]
+      if (n % 10) r += ' Y ' + ones[n % 10]
+    } else if (n > 0) {
+      r += ones[n]
+    }
+    return r.trim()
+  }
+
+  const intPart = Math.floor(amount)
+  const decPart = Math.round((amount - intPart) * 100)
+  let result = ''
+
+  if (intPart === 0) { result = 'CERO' }
+  else if (intPart < 1000) { result = chunk(intPart) }
+  else {
+    const miles = Math.floor(intPart / 1000)
+    const resto = intPart % 1000
+    result = miles === 1 ? 'MIL' : chunk(miles) + ' MIL'
+    if (resto > 0) result += ' ' + chunk(resto)
+  }
+
+  return `${result.trim()} CON ${decPart.toString().padStart(2, '0')}/100 LEMPIRAS`
+}
+
+// ── Impresión de recibo térmico 80 mm ─────────────────────────────────────
+type RazonSocialPdf = { nombre_empresa: string; nombre_comercial: string; documento: string; direccion: string; telefono: string; correo: string } | null
+
+function printReciboTermico(
+  ventaData: { encabezado: VentaEncabezado; detalles: (VentaDetalle & { producto_nombre?: string })[] },
+  cliente: { nombre?: string; rtn?: string } | undefined,
+  razonSocial: RazonSocialPdf,
+  pagosDetalle: { metodo_pago: string; monto_bruto: number }[],
+  operador?: string
+): void {
+  const enc      = ventaData.encabezado
+  const fechaV   = enc.fecha_venta ? new Date(enc.fecha_venta) : new Date()
+  const DIAS     = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado']
+  const MESES    = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+  const fechaStr = `${DIAS[fechaV.getDay()]} ${fechaV.getDate()} de ${MESES[fechaV.getMonth()]} de ${fechaV.getFullYear()}`
+
+  const subtotal   = enc.subtotal ?? 0
+  const descPct    = enc.descuento ?? 0
+  const descMonto  = subtotal * (descPct / 100)
+  const total      = enc.total_venta ?? 0
+  const sumaPagos  = pagosDetalle.reduce((s, p) => s + (Number(p.monto_bruto) || 0), 0)
+  const cambio     = Math.max(0, sumaPagos - total)
+  const metodoPago = pagosDetalle.length > 0
+    ? pagosDetalle.map(p => p.metodo_pago).join(' + ')
+    : 'Efectivo'
+
+  const lineasHtml = ventaData.detalles.map(d => {
+    const nombre   = (d.producto_nombre || '').toUpperCase()
+    const cant     = d.cantidad ?? 0
+    const precio   = d.precio_unitario ?? 0
+    const linTotal = cant * precio
+    return `
+      <div class="prod-name">${nombre}</div>
+      <div class="prod-line">
+        <span>${cant} X ${precio.toFixed(2)} &nbsp;-&nbsp; 0.00 =</span>
+        <span>${linTotal.toFixed(2)}</span>
+      </div>`
+  }).join('<div class="line-dash"></div>')
+
+  const empresa = (razonSocial?.nombre_empresa || 'COLMENA').toUpperCase()
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: 80mm auto; margin: 2mm 3mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Courier New', Courier, monospace; font-size: 10.5px; width: 74mm; color: #000; }
+  .emp-title { font-size: 17px; font-weight: 900; text-align: center; letter-spacing: 1px; }
+  .emp-sub   { font-size: 9.5px; text-align: center; line-height: 1.4; }
+  .line-solid  { border-top: 1px solid #000; margin: 4px 0; }
+  .line-dash   { border-top: 1px dashed #000; margin: 3px 0; }
+  .line-double { border-top: 3px double #000; margin: 4px 0; }
+  .factura-num { font-size: 13px; font-weight: 900; text-align: center; padding: 3px 0; }
+  .info-row  { display: flex; justify-content: space-between; font-size: 10px; margin: 1.5px 0; gap: 4px; }
+  .info-row strong { white-space: nowrap; }
+  .info-row .val { text-align: right; }
+  .contado   { font-size: 10px; text-align: center; margin: 2px 0; }
+  .col-hdr   { display: flex; justify-content: space-between; font-size: 9px; font-weight: bold; padding: 2px 0; }
+  .prod-name { font-weight: bold; font-size: 10px; margin-top: 4px; }
+  .prod-line { display: flex; justify-content: space-between; font-size: 10px; padding-left: 8px; margin-bottom: 3px; }
+  .tot-row   { display: flex; justify-content: space-between; font-size: 10.5px; margin: 2px 0; }
+  .tot-final { font-size: 14px; font-weight: 900; }
+  .monto-letras { font-size: 9px; text-align: center; font-style: italic; margin: 4px 2px; }
+  .firma-wrap { text-align: center; margin-top: 12px; }
+  .firma-line { border-top: 1px solid #000; width: 50mm; margin: 0 auto 3px; }
+  .firma-lbl  { font-size: 10px; }
+  .footer { text-align: center; font-size: 9px; margin-top: 10px; font-style: italic; }
+</style>
+</head>
+<body>
+  <div class="emp-title">${empresa}</div>
+  ${razonSocial?.nombre_empresa ? `<div class="emp-sub">${razonSocial.nombre_empresa}</div>` : ''}
+  ${razonSocial?.direccion ? `<div class="emp-sub">${razonSocial.direccion}</div>` : ''}
+  ${razonSocial?.telefono ? `<div class="emp-sub">Tel.${razonSocial.telefono}</div>` : ''}
+  ${razonSocial?.correo ? `<div class="emp-sub">Email. ${razonSocial.correo}</div>` : ''}
+  ${razonSocial?.documento ? `<div class="emp-sub">RTN: ${razonSocial.documento}</div>` : ''}
+
+  <div class="line-solid"></div>
+  <div class="factura-num">ORDEN DE PEDIDO #*${enc.numero_factura}</div>
+  <div class="line-solid"></div>
+
+  <div class="info-row"><strong>FECHA:</strong><span class="val">${fechaStr}</span></div>
+  <div class="info-row"><strong>CLIENTE:</strong><span class="val">${(cliente?.nombre || enc.cliente_nombre || 'CONSUMIDOR FINAL').toUpperCase()}</span></div>
+  <div class="info-row"><strong>R.T.N.</strong><span class="val">${cliente?.rtn || '0000000000000'}</span></div>
+  ${operador ? `<div class="info-row"><strong>ATENDIDO POR:</strong><span class="val">${operador.toUpperCase()}</span></div>` : ''}
+  <div class="info-row"><strong>Forma de Pago:</strong><span class="val">${metodoPago}</span></div>
+  <div class="contado">Transaccion al CONTADO</div>
+
+  <div class="line-solid"></div>
+  <div class="col-hdr"><span>Cuenta #</span><span>DESCRIPCION</span></div>
+  <div class="col-hdr"><span>CANT</span><span>PRECIO UNIT</span><span>DESCTO UNIT</span><span>TOTAL</span></div>
+  <div class="line-solid"></div>
+
+  ${lineasHtml}
+
+  <div class="line-double"></div>
+
+  <div class="tot-row"><span>SUB TOTAL</span><span>L. &nbsp;${subtotal.toFixed(2)}</span></div>
+  <div class="tot-row"><span>(-) DESCUENTOS Y REBAJAS<br><small>&nbsp;&nbsp;&nbsp;&nbsp;OTORGADOS</small></span><span>L. &nbsp;${descMonto.toFixed(2)}</span></div>
+
+  <div class="line-solid"></div>
+  <div class="tot-row tot-final"><span>TOTAL</span><span>L. &nbsp;${total.toFixed(2)}</span></div>
+  <div class="line-double"></div>
+
+  <div class="tot-row"><span>CAMBIO:</span><span>L. &nbsp;${cambio.toFixed(2)}</span></div>
+
+  <div class="line-dash"></div>
+  <div class="monto-letras">Son: ${numberToWordsHN(total)}</div>
+  <div class="line-dash"></div>
+
+  <div class="firma-wrap">
+    <div class="firma-line"></div>
+    <div class="firma-lbl">Aceptacion del Cliente</div>
+  </div>
+
+  <div class="line-dash"></div>
+  <div class="footer">** Generado por EasyCount **</div>
+</body>
+</html>`
+
+  const iframe = document.createElement('iframe')
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none;'
+  document.body.appendChild(iframe)
+
+  const iDoc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document)
+  if (!iDoc) { document.body.removeChild(iframe); return }
+
+  iDoc.open()
+  iDoc.write(html)
+  iDoc.close()
+
+  setTimeout(() => {
+    iframe.contentWindow?.focus()
+    iframe.contentWindow?.print()
+    setTimeout(() => { if (document.body.contains(iframe)) document.body.removeChild(iframe) }, 2000)
+  }, 600)
 }
 
 export default function NuevaVentaPage() {
@@ -116,6 +295,7 @@ export default function NuevaVentaPage() {
     detalles: VentaDetalle[]
   } | null>(null)
   const [showPdfDialog, setShowPdfDialog] = React.useState(false)
+  const [pdfBlobUrl, setPdfBlobUrl] = React.useState<string | null>(null)
   
   // Quick client creation
   const [showClienteDialog, setShowClienteDialog] = React.useState(false)
@@ -148,7 +328,7 @@ export default function NuevaVentaPage() {
       console.log("[v0][NuevaVenta] cargando datos...")
       const [clientesRes, productosRes, almacenesRes, localizacionesRes, correlativo, cuentasRes, marcasRes, categoriasRes, empsData] = await Promise.all([
         getClientes(),
-        getProductos(),
+        buscarProductos('', { limit: 100 }),
         getAlmacenes(),
         getLocalizaciones(),
         getNextCorrelativo(),
@@ -514,11 +694,26 @@ export default function NuevaVentaPage() {
     })
   }, [total])
 
+  // Filtro cliente del catálogo sobre la carga inicial (100 items, siempre rápido)
   const productosFiltrados = React.useMemo(() => {
     if (emprendimientoFiltro === "todos") return productos
     if (emprendimientoFiltro === "tienda") return productos.filter((p) => !p.emprendimiento_id)
     return productos.filter((p) => String(p.emprendimiento_id) === emprendimientoFiltro)
   }, [productos, emprendimientoFiltro])
+
+  // Búsqueda server-side para el catálogo (soporta 6000+ artículos)
+  const buscarFnCatalogo = React.useCallback(
+    async (q: string, catId: string, marcaId: string): Promise<Producto[]> => {
+      const opts: Parameters<typeof buscarProductos>[1] = { limit: 80 }
+      if (catId && catId !== "__todos__") opts!.categoriaId = parseInt(catId)
+      if (marcaId && marcaId !== "__todos__") opts!.marcaId = parseInt(marcaId)
+      if (emprendimientoFiltro === "tienda") opts!.soloTiendaPropia = true
+      else if (emprendimientoFiltro !== "todos") opts!.emprendimientoId = parseInt(emprendimientoFiltro)
+      const { data } = await buscarProductos(q, opts)
+      return data || []
+    },
+    [emprendimientoFiltro]
+  )
 
   const selectedCliente = clientes.find(c => c.id?.toString() === clienteId)
 
@@ -677,7 +872,7 @@ export default function NuevaVentaPage() {
       
       setLastVenta(ventaData)
       
-      // Auto-generate and download PDF
+      // Generar PDF A4 (guarda blob para descarga manual) e imprimir recibo térmico
       await generatePdfFromData(ventaData, selectedCliente)
       
       setShowPdfDialog(true)
@@ -913,26 +1108,22 @@ export default function NuevaVentaPage() {
     doc.setTextColor(168, 162, 158)
     doc.text("Generado por EasyCount", pageWidth / 2, pageHeight - 8, { align: "center" })
 
-    // Save and auto-download
-    const filename = `Factura_${ventaData.encabezado.numero_factura}.pdf`
-    
+    // Guardar blob del PDF A4 en estado (sin descarga automática)
     try {
       const pdfBlob = doc.output('blob')
       const blobUrl = URL.createObjectURL(pdfBlob)
-      
-      const link = document.createElement('a')
-      link.href = blobUrl
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 100)
-      
-      toast({ title: "PDF Generado", description: "La factura se descargo automaticamente" })
-    } catch (pdfError) {
-      toast({ title: "Error", description: "No se pudo generar el PDF", variant: "destructive" })
+      setPdfBlobUrl(blobUrl)
+    } catch {
+      // Si falla la generación A4, continuamos igual con el recibo
     }
+
+    // Imprimir recibo térmico 80 mm directamente
+    printReciboTermico(
+      ventaData,
+      cliente,
+      razonSocial,
+      pagosDetalle.map(({ _id: _omit, ...rest }) => rest)
+    )
   }
 
   // Limpia completamente el formulario y obtiene un nuevo correlativo + datos
@@ -946,6 +1137,7 @@ export default function NuevaVentaPage() {
     setFecha(new Date().toISOString().split("T")[0])
     setStockPorLocalizacion({})
     setLastVenta(null)
+    if (pdfBlobUrl) { URL.revokeObjectURL(pdfBlobUrl); setPdfBlobUrl(null) }
     // Recarga el correlativo y los catalogos para reflejar altas recientes
     // (nuevos clientes, productos, correlativo incrementado).
     loadData()
@@ -953,7 +1145,18 @@ export default function NuevaVentaPage() {
 
   async function generatePdf() {
     if (!lastVenta) return
-    await generatePdfFromData(lastVenta, selectedCliente)
+    // Si ya hay un blob guardado, descargarlo directamente
+    if (pdfBlobUrl) {
+      const link = document.createElement('a')
+      link.href = pdfBlobUrl
+      link.download = `Factura_${lastVenta.encabezado.numero_factura}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    } else {
+      // Fallback: regenerar el PDF A4 (por si el blob expiró)
+      await generatePdfFromData(lastVenta, selectedCliente)
+    }
     setShowPdfDialog(false)
     resetForm()
   }
@@ -1087,6 +1290,7 @@ export default function NuevaVentaPage() {
               localizacionSeleccionada={!!localizacionId}
               stockPorLocalizacion={stockCatalogo}
               loadingStock={loadingCatalogo}
+              buscarFn={buscarFnCatalogo}
             />
           </CardContent>
         </Card>
@@ -1743,7 +1947,7 @@ export default function NuevaVentaPage() {
               Factura {lastVenta?.encabezado.numero_factura}
             </p>
             <p className="text-muted-foreground mt-1">
-              creada exitosamente - PDF descargado
+              Venta registrada exitosamente
             </p>
             <p className="text-2xl font-bold text-primary mt-4">
               L {(lastVenta?.encabezado.total_venta ?? 0).toFixed(2)}
@@ -1757,8 +1961,8 @@ export default function NuevaVentaPage() {
               Nueva Venta
             </Button>
             <Button size="lg" onClick={generatePdf} className="gap-2">
-              <Printer className="h-4 w-4" />
-              Descargar PDF Nuevamente
+              <FileText className="h-4 w-4" />
+              Descargar PDF
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -258,3 +258,23 @@ export async function rechazarProductoPendiente(
 
   return { error: error?.message ?? null }
 }
+
+export async function countAprobacionesPendientes(razonSocialId: number): Promise<number> {
+  const supabase = createAdminClient()
+  if (!supabase) return 0
+
+  const [r1, r2] = await Promise.all([
+    supabase
+      .from("productos_pendientes")
+      .select("id", { count: "exact", head: true })
+      .eq("razon_social_id", razonSocialId)
+      .eq("estado", "pendiente"),
+    supabase
+      .from("ingresos_inventario_pendientes")
+      .select("id", { count: "exact", head: true })
+      .eq("razon_social_id", razonSocialId)
+      .eq("estado", "pendiente"),
+  ])
+
+  return (r1.count ?? 0) + (r2.count ?? 0)
+}

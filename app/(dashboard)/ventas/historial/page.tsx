@@ -47,6 +47,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
 import { getClientes, getAlmacenes, getProductos, type Cliente, type Almacen, type Producto } from "@/lib/services/catalogos"
+import { getEmprendimientos, type Emprendimiento } from "@/lib/services/emprendimientos"
+import { useAuth } from "@/lib/contexts/auth-context"
 import {
   getVentas,
   getDetallesVenta,
@@ -64,6 +66,8 @@ import { getMetodosPagoPorVenta } from "@/lib/services/ventas-analytics"
 
 export default function HistorialVentasPage() {
   const { toast } = useToast()
+  const { user } = useAuth()
+  const razonSocialId = user?.razon_social_id
 
   // --- Shared state ---
   const [loading, setLoading] = React.useState(true)
@@ -71,6 +75,7 @@ export default function HistorialVentasPage() {
   const [clientes, setClientes] = React.useState<Cliente[]>([])
   const [almacenes, setAlmacenes] = React.useState<Almacen[]>([])
   const [productos, setProductos] = React.useState<Producto[]>([])
+  const [emprendimientos, setEmprendimientos] = React.useState<Emprendimiento[]>([])
   /**
    * Map<venta_id, "Efectivo"|"Banco"|"Mixto"|"Credito"|"Otro">. Lo poblamos en
    * loadData con un solo query batch a ventas_pagos_detalle. Si la migracion
@@ -121,16 +126,18 @@ export default function HistorialVentasPage() {
   async function loadData() {
     setLoading(true)
     try {
-      const [ventasRes, clientesRes, almacenesRes, productosRes] = await Promise.all([
+      const [ventasRes, clientesRes, almacenesRes, productosRes, empsData] = await Promise.all([
         getVentas(),
         getClientes(),
         getAlmacenes(),
-        getProductos()
+        getProductos(),
+        razonSocialId ? getEmprendimientos(razonSocialId) : Promise.resolve([]),
       ])
       setVentas(ventasRes.data)
       setClientes(clientesRes.data)
       setAlmacenes(almacenesRes.data)
       setProductos(productosRes.data)
+      setEmprendimientos((empsData as Emprendimiento[]).filter((e) => e.activo !== false))
 
       // Una sola query batch para clasificar el metodo de pago de cada venta
       // visible. Aprovecha el Map<id, label> que regresa el helper.
@@ -187,7 +194,7 @@ export default function HistorialVentasPage() {
       const matchAlmacen = !filtroAlmacenIdFacturas || v.almacen_nombre === almacenSeleccionado
       const matchEstado = !filtroEstadoPago || v.estado_pago === filtroEstadoPago
       const matchEmprendimiento = !filtroEmprendimientoFacturas ||
-        (v.emprendimiento_nombre ?? '').toLowerCase().includes(filtroEmprendimientoFacturas.toLowerCase())
+        v.emprendimiento_nombre === filtroEmprendimientoFacturas
       return matchInicio && matchFin && matchCliente && matchAlmacen && matchEstado && matchEmprendimiento
     })
   }, [ventas, filtroFechaInicioFacturas, filtroFechaFinFacturas, filtroClienteIdFacturas, filtroAlmacenIdFacturas, filtroEstadoPago, filtroEmprendimientoFacturas, clientes, almacenes])
@@ -278,6 +285,33 @@ export default function HistorialVentasPage() {
     } finally {
       setDeletingVenta(false)
     }
+  }
+
+  function exportFacturasToExcel() {
+    if (ventasFiltradas.length === 0) {
+      toast({ title: "Sin datos", description: "No hay facturas para exportar", variant: "destructive" })
+      return
+    }
+    const rows = ventasFiltradas.map(v => ({
+      "N° Factura": v.numero_factura ?? "",
+      "Fecha": v.fecha_venta?.split('T')[0] ?? "",
+      "Cliente": v.cliente_nombre ?? "",
+      "Emprendimiento": v.emprendimiento_nombre ?? "",
+      "Almacén": v.almacen_nombre ?? "",
+      "Total (L)": Number((v.total_venta ?? 0).toFixed(2)),
+      "Pagado (L)": Number((v.valorpago ?? 0).toFixed(2)),
+      "Saldo (L)": Number(Math.max(0, (v.total_venta ?? 0) - (v.valorpago ?? 0)).toFixed(2)),
+      "Estado": v.estado_pago ?? "",
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    ws["!cols"] = [
+      { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 22 }, { wch: 18 },
+      { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 },
+    ]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Resumen Facturas")
+    XLSX.writeFile(wb, `Facturas_${new Date().toISOString().split('T')[0]}.xlsx`)
+    toast({ title: "Exportado", description: "Archivo Excel generado correctamente" })
   }
 
   function exportToExcel() {
@@ -520,12 +554,17 @@ export default function HistorialVentasPage() {
                 {/* Emprendimiento */}
                 <div>
                   <Label className="text-xs text-stone-600 mb-1.5 block">Emprendimiento</Label>
-                  <Input
-                    value={filtroEmprendimientoFacturas}
-                    onChange={e => setFiltroEmprendimientoFacturas(e.target.value)}
-                    placeholder="Buscar emprendimiento..."
-                    className="bg-white border-stone-200"
-                  />
+                  <Select value={filtroEmprendimientoFacturas || "all"} onValueChange={(v) => setFiltroEmprendimientoFacturas(v === "all" ? "" : v)}>
+                    <SelectTrigger className="bg-white border-stone-200">
+                      <SelectValue placeholder="Todos" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los emprendimientos</SelectItem>
+                      {emprendimientos.map(e => (
+                        <SelectItem key={e.id} value={e.nombre}>{e.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 {/* Fecha Inicio */}
@@ -602,21 +641,31 @@ export default function HistorialVentasPage() {
                   </Select>
                 </div>
 
-                {/* Limpiar */}
-                <Button
-                  variant="outline"
-                  className="border-stone-200 bg-white hover:bg-stone-100"
-                  onClick={() => {
-                    setFiltroFechaInicioFacturas("")
-                    setFiltroFechaFinFacturas("")
-                    setFiltroClienteIdFacturas("")
-                    setFiltroAlmacenIdFacturas("")
-                    setFiltroEmprendimientoFacturas("")
-                    setFiltroEstadoPago("")
-                  }}
-                >
-                  Limpiar Filtros
-                </Button>
+                {/* Acciones */}
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1 border-stone-200 bg-white hover:bg-stone-100"
+                    onClick={() => {
+                      setFiltroFechaInicioFacturas("")
+                      setFiltroFechaFinFacturas("")
+                      setFiltroClienteIdFacturas("")
+                      setFiltroAlmacenIdFacturas("")
+                      setFiltroEmprendimientoFacturas("")
+                      setFiltroEstadoPago("")
+                    }}
+                  >
+                    Limpiar
+                  </Button>
+                  <Button
+                    className="flex-1 gap-2 bg-stone-800 hover:bg-stone-900 text-white"
+                    onClick={exportFacturasToExcel}
+                    disabled={ventasFiltradas.length === 0}
+                  >
+                    <FileSpreadsheet className="h-4 w-4" />
+                    Excel
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

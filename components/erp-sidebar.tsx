@@ -27,6 +27,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { MODULOS, CATEGORIAS_ORDEN, type Categoria, type ModuloGranular } from "@/lib/constants/modulos"
+import { countAprobacionesPendientes } from "@/lib/services/productos-pendientes"
 
 // Iconos por categoria (el contenedor del collapsible)
 const CATEGORIA_ICON: Record<Categoria, React.ComponentType<{ className?: string }>> = {
@@ -48,6 +49,13 @@ function getInitials(name: string): string {
 export function ERPSidebar() {
   const pathname = usePathname()
   const { user, hasModulo } = useAuth()
+  const [pendingCount, setPendingCount] = React.useState(0)
+
+  React.useEffect(() => {
+    const id = user?.razon_social_id
+    if (!id) return
+    countAprobacionesPendientes(id).then(setPendingCount).catch(() => {})
+  }, [user?.razon_social_id])
 
   // Agrupa los modulos granulares por categoria, filtrando por permiso
   // en CADA HOJA (no en el contenedor). Si una categoria queda vacia,
@@ -107,6 +115,7 @@ export function ERPSidebar() {
                 // (sin collapsible) para simplificar la navegacion.
                 if (modulos.length === 1) {
                   const m = modulos[0]
+                  const isAprobaciones = m.nombre === "Aprobaciones"
                   return (
                     <SidebarMenuItem key={m.nombre}>
                       <SidebarMenuButton
@@ -117,6 +126,11 @@ export function ERPSidebar() {
                         <Link href={m.href}>
                           <m.icon className="h-4 w-4" />
                           <span>{m.nombre}</span>
+                          {isAprobaciones && pendingCount > 0 && (
+                            <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                              {pendingCount > 99 ? "99+" : pendingCount}
+                            </span>
+                          )}
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -135,19 +149,27 @@ export function ERPSidebar() {
                       </CollapsibleTrigger>
                       <CollapsibleContent>
                         <SidebarMenuSub>
-                          {modulos.map((m) => (
-                            <SidebarMenuSubItem key={m.nombre}>
-                              <SidebarMenuSubButton
-                                asChild
-                                isActive={pathname === m.href || pathname.startsWith(m.href + "/")}
-                              >
-                                <Link href={m.href}>
-                                  <m.icon className="h-3.5 w-3.5" />
-                                  <span>{m.nombre}</span>
-                                </Link>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ))}
+                          {modulos.map((m) => {
+                            const isAprobaciones = m.nombre === "Aprobaciones"
+                            return (
+                              <SidebarMenuSubItem key={m.nombre}>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={pathname === m.href || pathname.startsWith(m.href + "/")}
+                                >
+                                  <Link href={m.href}>
+                                    <m.icon className="h-3.5 w-3.5" />
+                                    <span>{m.nombre}</span>
+                                    {isAprobaciones && pendingCount > 0 && (
+                                      <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                                        {pendingCount > 99 ? "99+" : pendingCount}
+                                      </span>
+                                    )}
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            )
+                          })}
                         </SidebarMenuSub>
                       </CollapsibleContent>
                     </SidebarMenuItem>
