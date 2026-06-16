@@ -298,7 +298,7 @@ export default function NuevaVentaPage() {
   const [clienteId, setClienteId] = React.useState<string>("")
   const [numeroFactura, setNumeroFactura] = React.useState("")
   const [fecha, setFecha] = React.useState(new Date().toISOString().split("T")[0])
-  const [aplicaIsv, setAplicaIsv] = React.useState(true)
+  const [aplicaIsv] = React.useState(false)
   const [almacenId, setAlmacenId] = React.useState<string>("")
   const [localizacionId, setLocalizacionId] = React.useState<string>("")
   const [descuentoPct, setDescuentoPct] = React.useState<number>(0)
@@ -1518,16 +1518,6 @@ export default function NuevaVentaPage() {
           </div>
         )}
 
-        {/* ISV Toggle */}
-        <div className="px-4 py-3 border-b flex items-center justify-between">
-          <Label htmlFor="isv-switch" className="text-sm">Precio incluye ISV (15%)</Label>
-          <Switch
-            id="isv-switch"
-            checked={aplicaIsv}
-            onCheckedChange={setAplicaIsv}
-          />
-        </div>
-
         {/* Descuento */}
         <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
           <Label htmlFor="descuento-input" className="text-sm">Descuento (%)</Label>
@@ -1787,10 +1777,6 @@ export default function NuevaVentaPage() {
                 <span className="text-primary">- L {montoDescuento.toFixed(2)}</span>
               </div>
             )}
-            <div className="flex justify-between text-xs md:text-sm">
-              <span className="text-muted-foreground">ISV incluido (15%)</span>
-              <span>L {isv.toFixed(2)}</span>
-            </div>
             {totalComisionesR > 0 && (
               <>
                 <div className="flex justify-between text-xs md:text-sm">
