@@ -130,7 +130,7 @@ export default function MisProductosPage() {
     if (!emprendedor) return
     setHistorialLoading(true)
     const data = await getProductosPendientesByEmprendimiento(emprendedor.emprendimientoId)
-    setHistorial(data)
+    setHistorial(data.filter((p) => p.estado !== "rechazado"))
     setHistorialLoading(false)
   }, [emprendedor])
 

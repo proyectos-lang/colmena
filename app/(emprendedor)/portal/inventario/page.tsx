@@ -140,7 +140,7 @@ export default function InventarioPage() {
 
     setStock(stockData)
     setAlmacenes(alms.data ?? [])
-    setHistorial(hist)
+    setHistorial(hist.filter((x) => x.estado !== "rechazado"))
 
     /* Calcular última venta por producto */
     const ultimaVenta: Record<number, Date> = {}
