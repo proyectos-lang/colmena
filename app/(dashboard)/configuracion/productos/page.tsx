@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import {
   Plus,
   Package,
@@ -16,6 +16,8 @@ import {
   Layers,
   Search,
   Settings2,
+  FileSpreadsheet,
+  Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -65,6 +67,9 @@ import {
 import { getEmprendimientos, type Emprendimiento } from "@/lib/services/emprendimientos"
 import { useTenant } from "@/lib/hooks/use-tenant"
 import { ManageCategoriasDialog } from "@/components/productos/manage-categorias-dialog"
+import { insertProductosMasivoAdmin } from "@/lib/services/productos-pendientes"
+import { parseExcelUpload, type ExcelProductoRow } from "@/lib/utils/excel-parsers"
+import * as XLSX from "xlsx"
 
 export default function ProductosConfigPage() {
   const { toast } = useToast()
@@ -103,7 +108,77 @@ export default function ProductosConfigPage() {
   // Abre un acordeon donde cada fila es una categoria que se expande para
   // mostrar/agregar sus subcategorias.
   const [manageDialogOpen, setManageDialogOpen] = useState(false)
-  
+
+  // Carga masiva de productos
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
+  const [bulkEmpId, setBulkEmpId] = useState<string>("")
+  const [bulkRows, setBulkRows] = useState<ExcelProductoRow[]>([])
+  const [bulkErrors, setBulkErrors] = useState<string[]>([])
+  const [bulkFileName, setBulkFileName] = useState("")
+  const [bulkSending, setBulkSending] = useState(false)
+  const bulkFileRef = useRef<HTMLInputElement>(null)
+
+  function descargarPlantilla() {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["nombre", "codigo_barras", "precio_venta_sugerido", "cantidad_inicial", "marca", "categoria", "subcategoria"],
+      ["Ejemplo Producto", "COD-001", 25000, 10, "Mi Marca", "Ropa", "Camisetas"],
+    ])
+    ws["!cols"] = [{ wch: 28 }, { wch: 16 }, { wch: 22 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 18 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Productos")
+    XLSX.writeFile(wb, "plantilla_productos.xlsx")
+  }
+
+  function handleBulkFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setBulkFileName(file.name)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const buffer = Buffer.from(ev.target?.result as ArrayBuffer)
+      const { rows, errors } = parseExcelUpload(buffer)
+      setBulkRows(rows)
+      setBulkErrors(errors)
+    }
+    reader.readAsArrayBuffer(file)
+  }
+
+  async function handleBulkProcess() {
+    if (!bulkEmpId) {
+      toast({ title: "Selecciona un emprendedor", variant: "destructive" })
+      return
+    }
+    if (bulkRows.length === 0) {
+      toast({ title: "Carga un archivo Excel primero", variant: "destructive" })
+      return
+    }
+    const emp = emprendimientos.find((e) => e.id?.toString() === bulkEmpId)
+    if (!emp || !razonSocialId) return
+
+    setBulkSending(true)
+    const { insertados, errores } = await insertProductosMasivoAdmin(
+      bulkRows,
+      emp.id!,
+      razonSocialId,
+      "admin"
+    )
+    setBulkSending(false)
+
+    if (insertados > 0) {
+      toast({ title: `${insertados} producto(s) creados correctamente` })
+      loadProductos()
+    }
+    if (errores.length > 0) {
+      setBulkErrors(errores)
+    } else {
+      setBulkDialogOpen(false)
+      setBulkRows([])
+      setBulkErrors([])
+      setBulkFileName("")
+      setBulkEmpId("")
+    }
+  }
+
   const [formData, setFormData] = useState<Partial<Producto>>({
     nombre: "",
     codigo_barras: "",
@@ -421,10 +496,16 @@ export default function ProductosConfigPage() {
           <h1 className="text-xl md:text-2xl font-bold text-foreground">Configuracion de Productos</h1>
           <p className="text-sm md:text-base text-muted-foreground">Gestiona el catalogo de productos</p>
         </div>
-        <Button onClick={openNewDialog} size="sm" className="w-full sm:w-auto">
-          <Plus className="h-4 w-4 mr-1" />
-          Nuevo Producto
-        </Button>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <Button variant="outline" size="sm" onClick={() => setBulkDialogOpen(true)} className="flex-1 sm:flex-none">
+            <FileSpreadsheet className="h-4 w-4 mr-1" />
+            Carga Masiva
+          </Button>
+          <Button onClick={openNewDialog} size="sm" className="flex-1 sm:flex-none">
+            <Plus className="h-4 w-4 mr-1" />
+            Nuevo Producto
+          </Button>
+        </div>
       </div>
 
       {/* Filtros superiores */}
@@ -1195,6 +1276,111 @@ export default function ProductosConfigPage() {
             >
               {creatingCategoria && <Spinner className="mr-2 h-4 w-4" />}
               Crear Categoria
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Carga masiva de productos ── */}
+      <Dialog open={bulkDialogOpen} onOpenChange={(o) => {
+        setBulkDialogOpen(o)
+        if (!o) { setBulkRows([]); setBulkErrors([]); setBulkFileName(""); setBulkEmpId("") }
+      }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Carga masiva de productos</DialogTitle>
+            <DialogDescription>
+              Selecciona el emprendedor, descarga la plantilla, llénala y súbela.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Selector de emprendedor */}
+            <div className="space-y-1.5">
+              <Label>Emprendedor *</Label>
+              <Select value={bulkEmpId} onValueChange={setBulkEmpId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona un emprendedor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {emprendimientos.map((e) => (
+                    <SelectItem key={e.id} value={e.id!.toString()}>
+                      {e.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Acciones de archivo */}
+            <div className="flex gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={descargarPlantilla}>
+                <Download className="h-4 w-4 mr-1" /> Descargar plantilla
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => bulkFileRef.current?.click()}>
+                <Upload className="h-4 w-4 mr-1" /> Cargar Excel
+              </Button>
+              <input
+                ref={bulkFileRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={handleBulkFile}
+              />
+            </div>
+
+            {bulkFileName && (
+              <p className="text-sm text-muted-foreground flex items-center gap-1">
+                <FileSpreadsheet className="h-4 w-4" /> {bulkFileName}
+              </p>
+            )}
+
+            {/* Errores de parseo */}
+            {bulkErrors.length > 0 && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/30 p-3 text-sm text-destructive space-y-0.5 max-h-36 overflow-y-auto">
+                {bulkErrors.map((e, i) => <p key={i}>{e}</p>)}
+              </div>
+            )}
+
+            {/* Preview de filas */}
+            {bulkRows.length > 0 && (
+              <div className="rounded-md border overflow-auto max-h-56">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nombre</TableHead>
+                      <TableHead>Código</TableHead>
+                      <TableHead className="text-right">Precio</TableHead>
+                      <TableHead className="text-right">Cant. ini.</TableHead>
+                      <TableHead>Marca</TableHead>
+                      <TableHead>Categoría</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bulkRows.map((r, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="font-medium">{r.nombre}</TableCell>
+                        <TableCell className="font-mono text-sm">{r.codigo_barras}</TableCell>
+                        <TableCell className="text-right">{r.precio_venta_sugerido.toLocaleString("es")}</TableCell>
+                        <TableCell className="text-right">{r.cantidad_inicial ?? 0}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{r.marca ?? "—"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{r.categoria ?? "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDialogOpen(false)}>Cancelar</Button>
+            <Button
+              onClick={handleBulkProcess}
+              disabled={bulkSending || bulkRows.length === 0 || !bulkEmpId}
+            >
+              {bulkSending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {bulkSending ? "Procesando..." : `Crear ${bulkRows.length} producto(s)`}
             </Button>
           </DialogFooter>
         </DialogContent>

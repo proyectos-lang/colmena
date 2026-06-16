@@ -259,6 +259,50 @@ export async function rechazarProductoPendiente(
   return { error: error?.message ?? null }
 }
 
+export async function insertProductosMasivoAdmin(
+  rows: ExcelProductoRow[],
+  emprendimientoId: number,
+  razonSocialId: number,
+  usuario: string
+): Promise<{ insertados: number; errores: string[] }> {
+  const supabase = createAdminClient()
+  if (!supabase) return { insertados: 0, errores: ["Cliente no disponible"] }
+
+  const errores: string[] = []
+  let insertados = 0
+
+  for (const row of rows) {
+    try {
+      const marcaId     = await resolveOrCreateMarca(supabase, row.marca, razonSocialId)
+      const categoriaId = await resolveOrCreateCategoria(supabase, row.categoria, razonSocialId)
+
+      const { error } = await supabase.from("productos").insert({
+        nombre: row.nombre,
+        codigo_barras: row.codigo_barras,
+        precio_venta_sugerido: row.precio_venta_sugerido,
+        costo_promedio: 0,
+        stock_total: row.cantidad_inicial ?? 0,
+        foto_url: null,
+        marca_id: marcaId,
+        categoria_id: categoriaId,
+        emprendimiento_id: emprendimientoId,
+        razon_social_id: razonSocialId,
+        usuario,
+      })
+
+      if (error) {
+        errores.push(`${row.nombre}: ${error.message}`)
+      } else {
+        insertados++
+      }
+    } catch (err: any) {
+      errores.push(`${row.nombre}: ${err?.message ?? "Error desconocido"}`)
+    }
+  }
+
+  return { insertados, errores }
+}
+
 export async function countAprobacionesPendientes(razonSocialId: number): Promise<number> {
   const supabase = createAdminClient()
   if (!supabase) return 0
