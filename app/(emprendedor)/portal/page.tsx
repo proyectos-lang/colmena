@@ -148,7 +148,7 @@ export default function DashboardPage() {
   }, [emprendedor])
 
   /* ─── Derived ──────────────────────────────────────────────── */
-  const totalVentas   = ventas.reduce((s, v) => s + v.subtotal, 0)
+  const totalVentas   = ventas.reduce((s, v) => s + v.subtotal_neto, 0)
   const totalUnidades = ventas.reduce((s, v) => s + v.cantidad, 0)
   const totalStock    = stock.reduce((s, p) => s + p.stock_total, 0)
 
@@ -158,7 +158,7 @@ export default function DashboardPage() {
     const map: Record<string, number> = {}
     ventas.forEach((v) => {
       const k = format(parseISO(v.fecha_venta), "dd/MM")
-      map[k] = (map[k] ?? 0) + v.subtotal
+      map[k] = (map[k] ?? 0) + v.subtotal_neto
     })
     return days.map((d) => ({ label: format(d, "dd/MM"), total: map[format(d, "dd/MM")] ?? 0 }))
   }, [ventas])
@@ -177,7 +177,7 @@ export default function DashboardPage() {
     ventas.forEach((v) => {
       if (!map[v.producto_id]) map[v.producto_id] = { nombre: v.producto_nombre, cantidad: 0, total: 0 }
       map[v.producto_id].cantidad += v.cantidad
-      map[v.producto_id].total   += v.subtotal
+      map[v.producto_id].total   += v.subtotal_neto
     })
     return Object.values(map).sort((a, b) => b.cantidad - a.cantidad).slice(0, 5)
   }, [ventas])
@@ -193,12 +193,12 @@ export default function DashboardPage() {
         map[v.numero_factura] = { numero: v.numero_factura, fecha: v.fecha_venta, items: [], total: 0 }
       }
       map[v.numero_factura].items.push(v)
-      map[v.numero_factura].total += v.subtotal
+      map[v.numero_factura].total += v.subtotal_neto
     })
     return Object.values(map).sort((a, b) => b.fecha.localeCompare(a.fecha))
   }, [ventasNuevas])
 
-  const totalNuevas   = ventasNuevas.reduce((s, v) => s + v.subtotal, 0)
+  const totalNuevas   = ventasNuevas.reduce((s, v) => s + v.subtotal_neto, 0)
   const unidadesNuevas = ventasNuevas.reduce((s, v) => s + v.cantidad, 0)
 
   /* ─── Counters ─────────────────────────────────────────────── */

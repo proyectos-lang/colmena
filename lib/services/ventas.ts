@@ -1738,7 +1738,8 @@ export interface VentaEmprendedor {
   codigo_barras: string
   cantidad: number
   precio_unitario: number
-  subtotal: number
+  subtotal: number      // bruto: cantidad × precio_unitario
+  subtotal_neto: number // neto: descontada la comisión bancaria proporcional
   numero_factura: string
 }
 
@@ -1757,7 +1758,7 @@ export async function getVentasByEmprendimiento(
         cantidad,
         precio_unitario,
         productos!inner(id, nombre, codigo_barras, emprendimiento_id),
-        ventas_encabezado!inner(fecha_venta, numero_factura)
+        ventas_encabezado!inner(fecha_venta, numero_factura, subtotal, total_venta)
       `)
       .eq('productos.emprendimiento_id', emprendimientoId)
       .gte('ventas_encabezado.fecha_venta', desde)
@@ -1773,6 +1774,11 @@ export async function getVentasByEmprendimiento(
       const encabezado = Array.isArray(row.ventas_encabezado)
         ? row.ventas_encabezado[0]
         : row.ventas_encabezado
+      const productoSubtotal = (row.cantidad ?? 0) * (row.precio_unitario ?? 0)
+      const encSubtotal   = Number(encabezado?.subtotal   ?? 0)
+      const encTotalVenta = Number(encabezado?.total_venta ?? 0)
+      // Factor de comisión proporcional al total de la venta
+      const factor = encSubtotal > 0 ? encTotalVenta / encSubtotal : 1
       return {
         fecha_venta: encabezado?.fecha_venta ?? '',
         producto_id: producto?.id ?? 0,
@@ -1780,7 +1786,8 @@ export async function getVentasByEmprendimiento(
         codigo_barras: producto?.codigo_barras ?? '',
         cantidad: row.cantidad ?? 0,
         precio_unitario: row.precio_unitario ?? 0,
-        subtotal: (row.cantidad ?? 0) * (row.precio_unitario ?? 0),
+        subtotal: productoSubtotal,
+        subtotal_neto: +( productoSubtotal * factor ).toFixed(2),
         numero_factura: encabezado?.numero_factura ?? '',
       }
     })

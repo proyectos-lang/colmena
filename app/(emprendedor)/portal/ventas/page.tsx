@@ -98,7 +98,7 @@ export default function VentasEmprendedorPage() {
   }, [emprendedor, desde, hasta])
 
   /* ─── Datos derivados ─── */
-  const totalVendido = ventas.reduce((s, v) => s + v.subtotal, 0)
+  const totalVendido = ventas.reduce((s, v) => s + v.subtotal_neto, 0)
   const unidadesVendidas = ventas.reduce((s, v) => s + v.cantidad, 0)
   const productosDistintos = new Set(ventas.map((v) => v.producto_id)).size
 
@@ -106,7 +106,7 @@ export default function VentasEmprendedorPage() {
     const map: Record<string, number> = {}
     ventas.forEach((v) => {
       const dia = format(new Date(v.fecha_venta), "dd/MM")
-      map[dia] = (map[dia] ?? 0) + v.subtotal
+      map[dia] = (map[dia] ?? 0) + v.subtotal_neto
     })
     return Object.entries(map)
       .sort((a, b) => a[0].localeCompare(b[0]))
@@ -117,7 +117,7 @@ export default function VentasEmprendedorPage() {
     const map: Record<number, { nombre: string; total: number; cantidad: number }> = {}
     ventas.forEach((v) => {
       if (!map[v.producto_id]) map[v.producto_id] = { nombre: v.producto_nombre, total: 0, cantidad: 0 }
-      map[v.producto_id].total    += v.subtotal
+      map[v.producto_id].total    += v.subtotal_neto
       map[v.producto_id].cantidad += v.cantidad
     })
     return Object.values(map)
@@ -137,7 +137,7 @@ export default function VentasEmprendedorPage() {
       Codigo: v.codigo_barras,
       Cantidad: v.cantidad,
       "Precio Unitario": v.precio_unitario,
-      Subtotal: v.subtotal,
+      Subtotal: v.subtotal_neto,
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
@@ -301,7 +301,7 @@ export default function VentasEmprendedorPage() {
                 <TableHead className="text-stone-500">Producto</TableHead>
                 <TableHead className="text-right text-stone-500">Cant.</TableHead>
                 <TableHead className="text-right text-stone-500">Precio unit.</TableHead>
-                <TableHead className="text-right text-stone-500">Subtotal</TableHead>
+                <TableHead className="text-right text-stone-500">Subtotal neto</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -321,7 +321,7 @@ export default function VentasEmprendedorPage() {
                     <TableCell className="font-medium text-stone-700">{v.producto_nombre}</TableCell>
                     <TableCell className="text-right text-stone-600">{v.cantidad}</TableCell>
                     <TableCell className="text-right text-stone-600">{fmoney(v.precio_unitario)}</TableCell>
-                    <TableCell className="text-right font-semibold text-stone-800">{fmoney(v.subtotal)}</TableCell>
+                    <TableCell className="text-right font-semibold text-stone-800">{fmoney(v.subtotal_neto)}</TableCell>
                   </TableRow>
                 ))
               )}
