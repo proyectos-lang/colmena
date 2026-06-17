@@ -1419,8 +1419,8 @@ export default function ProductosConfigPage() {
                   onValueChange={setBulkLocalizacionId}
                   disabled={!bulkAlmacenId}
                 >
-                  <SelectTrigger className="text-sm disabled:opacity-60">
-                    <SelectValue placeholder={bulkAlmacenId ? "Selecciona…" : "Elige almacén primero"} />
+                  <SelectTrigger className="text-sm disabled:opacity-60 min-w-0 w-full">
+                    <SelectValue placeholder={bulkAlmacenId ? "Selecciona…" : "— almacén primero —"} />
                   </SelectTrigger>
                   <SelectContent>
                     {localizacionesBulk.map((l) => (
