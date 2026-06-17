@@ -243,7 +243,7 @@ export function ProductCatalog({
               type="button"
               variant="default"
               size="icon"
-              className="h-10 w-10 shrink-0"
+              className="h-9 w-9 shrink-0"
               onClick={commitSearch}
               disabled={!searchInput.trim()}
               title="Buscar"
@@ -283,24 +283,24 @@ export function ProductCatalog({
 
         <div className="grid grid-cols-2 gap-2">
           <Select value={categoriaFiltro} onValueChange={setCategoriaFiltro}>
-            <SelectTrigger className="h-9">
+            <SelectTrigger className="h-8 text-xs">
               <SelectValue placeholder="Categoria" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={TODOS}>Todas las categorias</SelectItem>
+              <SelectItem value={TODOS} className="text-xs">Todas las categorias</SelectItem>
               {categorias.map((c) => (
-                <SelectItem key={c.id} value={String(c.id)}>{c.nombre}</SelectItem>
+                <SelectItem key={c.id} value={String(c.id)} className="text-xs">{c.nombre}</SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Select value={marcaFiltro} onValueChange={setMarcaFiltro}>
-            <SelectTrigger className="h-9">
+            <SelectTrigger className="h-8 text-xs">
               <SelectValue placeholder="Marca" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={TODOS}>Todas las marcas</SelectItem>
+              <SelectItem value={TODOS} className="text-xs">Todas las marcas</SelectItem>
               {marcas.map((m) => (
-                <SelectItem key={m.id} value={String(m.id)}>{m.nombre}</SelectItem>
+                <SelectItem key={m.id} value={String(m.id)} className="text-xs">{m.nombre}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -491,7 +491,7 @@ function ProductImage({ url, nombre, className }: { url?: string | null; nombre:
 
 function ProductGrid({ productos, idsEnVenta, cola, onAdd, disabled, getStock, searchMode }: ListProps) {
   return (
-    <div className="grid grid-cols-2 min-[480px]:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 sm:gap-3">
+    <div className="grid grid-cols-3 min-[480px]:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
       {productos.map((p) => {
         const enVenta = idsEnVenta.includes(p.id!)
         const enCola = cola.includes(p.id!)
@@ -503,34 +503,29 @@ function ProductGrid({ productos, idsEnVenta, cola, onAdd, disabled, getStock, s
             disabled={disabled}
             onClick={() => onAdd(p)}
             className={cn(
-              "group relative flex flex-col rounded-lg border bg-card text-left overflow-hidden transition-colors",
+              "group relative flex flex-col rounded-md border bg-card text-left overflow-hidden transition-colors",
               "hover:border-primary hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
               "disabled:opacity-50 disabled:cursor-not-allowed",
               enVenta && !searchMode && "border-primary",
               enCola && "border-primary bg-primary/5"
             )}
           >
-            <div className="relative aspect-square w-full">
+            <div className="relative h-14 w-full shrink-0">
               <ProductImage url={p.foto_url} nombre={p.nombre} className="h-full w-full" />
-              {(enVenta && !searchMode) && (
-                <span className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow">
-                  <Check className="h-3.5 w-3.5" />
-                </span>
-              )}
-              {enCola && (
-                <span className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow">
-                  <Check className="h-3.5 w-3.5" />
+              {((enVenta && !searchMode) || enCola) && (
+                <span className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow">
+                  <Check className="h-3 w-3" />
                 </span>
               )}
             </div>
-            <div className="flex flex-col gap-1 p-2 sm:p-2.5 min-w-0">
-              <p className="text-[13px] sm:text-sm font-medium leading-tight line-clamp-2 break-words">{p.nombre}</p>
-              <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 mt-0.5">
-                <span className="text-[13px] sm:text-sm font-bold text-primary whitespace-nowrap">
+            <div className="flex flex-col gap-0.5 p-1.5 min-w-0">
+              <p className="text-[11px] font-medium leading-tight line-clamp-2 break-words">{p.nombre}</p>
+              <div className="flex flex-wrap items-center justify-between gap-x-1 gap-y-0.5 mt-0.5">
+                <span className="text-[11px] font-bold text-primary whitespace-nowrap">
                   L {(p.precio_venta_sugerido ?? 0).toFixed(2)}
                 </span>
-                <span className={cn("text-[11px] sm:text-xs font-medium whitespace-nowrap", stockClass(stock))}>
-                  Stock: {stock}
+                <span className={cn("text-[10px] font-medium whitespace-nowrap", stockClass(stock))}>
+                  {stock}
                 </span>
               </div>
             </div>
