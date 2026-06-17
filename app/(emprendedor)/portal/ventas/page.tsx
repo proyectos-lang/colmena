@@ -76,6 +76,7 @@ export default function VentasEmprendedorPage() {
   const [ventas, setVentas] = React.useState<VentaEmprendedor[]>([])
   const [loading, setLoading] = React.useState(true)
   const [page, setPage] = React.useState(1)
+  const [busqueda, setBusqueda] = React.useState("")
   const PAGE_SIZE = 50
 
   const aplicarPeriodo = React.useCallback((p: Periodo) => {
@@ -100,8 +101,17 @@ export default function VentasEmprendedorPage() {
   }, [emprendedor, desde, hasta])
 
   /* ─── Datos derivados ─── */
-  const totalPages = Math.max(1, Math.ceil(ventas.length / PAGE_SIZE))
-  const ventasPagina = ventas.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const ventasFiltradas = React.useMemo(() => {
+    const q = busqueda.trim().toLowerCase()
+    if (!q) return ventas
+    return ventas.filter((v) =>
+      v.producto_nombre.toLowerCase().includes(q) ||
+      (v.codigo_barras ?? "").toLowerCase().includes(q)
+    )
+  }, [ventas, busqueda])
+
+  const totalPages = Math.max(1, Math.ceil(ventasFiltradas.length / PAGE_SIZE))
+  const ventasPagina = ventasFiltradas.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const totalVendido = ventas.reduce((s, v) => s + v.subtotal_neto, 0)
   const unidadesVendidas = ventas.reduce((s, v) => s + v.cantidad, 0)
   const productosDistintos = new Set(ventas.map((v) => v.producto_id)).size
@@ -289,13 +299,29 @@ export default function VentasEmprendedorPage() {
       {/* Tabla detalle */}
       <div className="rounded-2xl bg-white border border-stone-200/60 shadow-sm overflow-hidden"
         style={{ boxShadow: "0 1px 3px rgba(120,53,15,0.08)" }}>
-        <div className="px-5 pt-4 pb-3 border-b border-stone-100 flex items-center justify-between">
-          <h2 className="font-semibold text-stone-800 text-sm">Detalle de transacciones</h2>
-          {!loading && ventas.length > 0 && (
-            <span className="text-xs text-stone-400">
-              {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, ventas.length)} de {ventas.length}
-            </span>
-          )}
+        <div className="px-5 pt-4 pb-3 border-b border-stone-100 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-stone-800 text-sm">Detalle de transacciones</h2>
+            {!loading && ventasFiltradas.length > 0 && (
+              <span className="text-xs text-stone-400">
+                {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, ventasFiltradas.length)} de {ventasFiltradas.length}
+                {busqueda && ventas.length !== ventasFiltradas.length && (
+                  <span className="ml-1 text-stone-300">(de {ventas.length} totales)</span>
+                )}
+              </span>
+            )}
+          </div>
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-stone-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <Input
+              placeholder="Buscar por producto o código…"
+              value={busqueda}
+              onChange={(e) => { setBusqueda(e.target.value); setPage(1) }}
+              className="pl-8 h-8 text-sm border-stone-200 bg-stone-50 focus:bg-white"
+            />
+          </div>
         </div>
         {loading ? (
           <div className="p-5 space-y-2">
@@ -316,10 +342,10 @@ export default function VentasEmprendedorPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {ventas.length === 0 ? (
+                  {ventasPagina.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center text-stone-400 py-10">
-                        Sin ventas en el período seleccionado
+                        {busqueda ? "Sin resultados para la búsqueda" : "Sin ventas en el período seleccionado"}
                       </TableCell>
                     </TableRow>
                   ) : (

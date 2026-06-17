@@ -107,6 +107,7 @@ export default function InventarioPage() {
   const [stock, setStock] = React.useState<StockEmprendedor[]>([])
   const [stockLoading, setStockLoading] = React.useState(true)
   const [stockPage, setStockPage] = React.useState(1)
+  const [stockBusqueda, setStockBusqueda] = React.useState("")
   const STOCK_PAGE_SIZE = 50
   const [almacenes, setAlmacenes] = React.useState<any[]>([])
   const [historial, setHistorial] = React.useState<IngresoPendiente[]>([])
@@ -226,6 +227,16 @@ export default function InventarioPage() {
     cargar()
   }
 
+  /* ─── Stock filtrado ───────────────────────────────── */
+  const stockFiltrado = React.useMemo(() => {
+    const q = stockBusqueda.trim().toLowerCase()
+    if (!q) return stock
+    return stock.filter((p) =>
+      p.nombre.toLowerCase().includes(q) ||
+      (p.codigo_barras ?? "").toLowerCase().includes(q)
+    )
+  }, [stock, stockBusqueda])
+
   /* ─── Leyenda rotación ─────────────────────────────── */
   const legendaItems = [
     { label: "Hoy / ≤7d",  bg: "#dcfce7", text: "#15803d" },
@@ -255,25 +266,43 @@ export default function InventarioPage() {
           <div className="rounded-2xl bg-white border border-stone-200/60 shadow-sm overflow-hidden"
             style={{ boxShadow: "0 1px 3px rgba(120,53,15,0.08)" }}>
 
-            {/* Leyenda + contador */}
-            <div className="px-5 pt-4 pb-3 flex flex-wrap items-center justify-between gap-3 border-b border-stone-100">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-1.5 text-stone-500">
-                  <CalendarClock className="h-3.5 w-3.5" />
-                  <span className="text-xs font-medium">Días sin venta:</span>
-                </div>
-                {legendaItems.map((l) => (
-                  <span key={l.label} className="rounded-full px-2 py-0.5 text-xs font-medium"
-                    style={{ background: l.bg, color: l.text }}>
-                    {l.label}
-                  </span>
-                ))}
+            {/* Búsqueda + leyenda + contador */}
+            <div className="px-5 pt-4 pb-3 space-y-3 border-b border-stone-100">
+              {/* Buscador */}
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-stone-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                </svg>
+                <Input
+                  placeholder="Buscar por producto o código…"
+                  value={stockBusqueda}
+                  onChange={(e) => { setStockBusqueda(e.target.value); setStockPage(1) }}
+                  className="pl-8 h-8 text-sm border-stone-200 bg-stone-50 focus:bg-white"
+                />
               </div>
-              {!stockLoading && stock.length > 0 && (
-                <span className="text-xs text-stone-400 shrink-0">
-                  {(stockPage - 1) * STOCK_PAGE_SIZE + 1}–{Math.min(stockPage * STOCK_PAGE_SIZE, stock.length)} de {stock.length}
-                </span>
-              )}
+              {/* Leyenda + contador */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-stone-500">
+                    <CalendarClock className="h-3.5 w-3.5" />
+                    <span className="text-xs font-medium">Días sin venta:</span>
+                  </div>
+                  {legendaItems.map((l) => (
+                    <span key={l.label} className="rounded-full px-2 py-0.5 text-xs font-medium"
+                      style={{ background: l.bg, color: l.text }}>
+                      {l.label}
+                    </span>
+                  ))}
+                </div>
+                {!stockLoading && stockFiltrado.length > 0 && (
+                  <span className="text-xs text-stone-400 shrink-0">
+                    {(stockPage - 1) * STOCK_PAGE_SIZE + 1}–{Math.min(stockPage * STOCK_PAGE_SIZE, stockFiltrado.length)} de {stockFiltrado.length}
+                    {stockBusqueda && stock.length !== stockFiltrado.length && (
+                      <span className="ml-1 text-stone-300">(de {stock.length} totales)</span>
+                    )}
+                  </span>
+                )}
+              </div>
             </div>
 
             {stockLoading ? (
@@ -299,14 +328,14 @@ export default function InventarioPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {stock.length === 0 ? (
+                      {stockFiltrado.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={5} className="text-center text-stone-400 py-10">
-                            Sin productos en inventario aún
+                            {stockBusqueda ? "Sin resultados para la búsqueda" : "Sin productos en inventario aún"}
                           </TableCell>
                         </TableRow>
                       ) : (
-                        stock
+                        stockFiltrado
                           .slice((stockPage - 1) * STOCK_PAGE_SIZE, stockPage * STOCK_PAGE_SIZE)
                           .map((p) => (
                             <TableRow key={p.producto_id} className="hover:bg-stone-50/60">
@@ -323,7 +352,7 @@ export default function InventarioPage() {
                     </TableBody>
                   </Table>
                 </div>
-                {Math.ceil(stock.length / STOCK_PAGE_SIZE) > 1 && (
+                {Math.ceil(stockFiltrado.length / STOCK_PAGE_SIZE) > 1 && (
                   <div className="flex items-center justify-center gap-3 px-5 py-3 border-t border-stone-100">
                     <button
                       onClick={() => setStockPage((p) => Math.max(1, p - 1))}
@@ -333,11 +362,11 @@ export default function InventarioPage() {
                       <ChevronLeft className="h-3.5 w-3.5" /> Anterior
                     </button>
                     <span className="text-xs text-stone-500">
-                      Página <span className="font-semibold text-stone-700">{stockPage}</span> de <span className="font-semibold text-stone-700">{Math.ceil(stock.length / STOCK_PAGE_SIZE)}</span>
+                      Página <span className="font-semibold text-stone-700">{stockPage}</span> de <span className="font-semibold text-stone-700">{Math.ceil(stockFiltrado.length / STOCK_PAGE_SIZE)}</span>
                     </span>
                     <button
-                      onClick={() => setStockPage((p) => Math.min(Math.ceil(stock.length / STOCK_PAGE_SIZE), p + 1))}
-                      disabled={stockPage === Math.ceil(stock.length / STOCK_PAGE_SIZE)}
+                      onClick={() => setStockPage((p) => Math.min(Math.ceil(stockFiltrado.length / STOCK_PAGE_SIZE), p + 1))}
+                      disabled={stockPage === Math.ceil(stockFiltrado.length / STOCK_PAGE_SIZE)}
                       className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium border border-stone-200 text-stone-600 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                     >
                       Siguiente <ChevronRight className="h-3.5 w-3.5" />
