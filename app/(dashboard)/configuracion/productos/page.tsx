@@ -67,6 +67,7 @@ import {
   getSubcategorias,
 } from "@/lib/services/catalogos"
 import { getEmprendimientos, type Emprendimiento } from "@/lib/services/emprendimientos"
+import { getAlmacenes, getLocalizaciones, type Almacen, type Localizacion } from "@/lib/services/catalogos"
 import { useTenant } from "@/lib/hooks/use-tenant"
 import { ManageCategoriasDialog } from "@/components/productos/manage-categorias-dialog"
 import { insertProductosMasivoAdmin } from "@/lib/services/productos-pendientes"
@@ -120,11 +121,18 @@ export default function ProductosConfigPage() {
   // Carga masiva de productos
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
   const [bulkEmpId, setBulkEmpId] = useState<string>("")
+  const [bulkAlmacenId, setBulkAlmacenId] = useState<string>("")
+  const [bulkLocalizacionId, setBulkLocalizacionId] = useState<string>("")
   const [bulkRows, setBulkRows] = useState<ExcelProductoRow[]>([])
   const [bulkErrors, setBulkErrors] = useState<string[]>([])
   const [bulkFileName, setBulkFileName] = useState("")
   const [bulkSending, setBulkSending] = useState(false)
   const bulkFileRef = useRef<HTMLInputElement>(null)
+
+  // Almacenes y localizaciones para la carga masiva
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([])
+  const [localizaciones, setLocalizaciones] = useState<Localizacion[]>([])
+  const [localizacionesBulk, setLocalizacionesBulk] = useState<Localizacion[]>([])
 
   function descargarPlantilla() {
     const ws = XLSX.utils.aoa_to_sheet([
@@ -135,6 +143,14 @@ export default function ProductosConfigPage() {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Productos")
     XLSX.writeFile(wb, "plantilla_productos.xlsx")
+  }
+
+  function handleBulkAlmacenChange(value: string) {
+    setBulkAlmacenId(value)
+    setBulkLocalizacionId("")
+    const filtradas = localizaciones.filter((l) => l.almacen_id === parseInt(value))
+    setLocalizacionesBulk(filtradas)
+    if (filtradas.length === 1) setBulkLocalizacionId(filtradas[0].id!.toString())
   }
 
   function handleBulkFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -156,6 +172,14 @@ export default function ProductosConfigPage() {
       toast({ title: "Selecciona un emprendedor", variant: "destructive" })
       return
     }
+    if (!bulkAlmacenId) {
+      toast({ title: "Selecciona un almacén", variant: "destructive" })
+      return
+    }
+    if (!bulkLocalizacionId) {
+      toast({ title: "Selecciona una localización", variant: "destructive" })
+      return
+    }
     if (bulkRows.length === 0) {
       toast({ title: "Carga un archivo Excel primero", variant: "destructive" })
       return
@@ -168,7 +192,9 @@ export default function ProductosConfigPage() {
       bulkRows,
       emp.id!,
       razonSocialId,
-      "admin"
+      "admin",
+      parseInt(bulkAlmacenId),
+      parseInt(bulkLocalizacionId)
     )
     setBulkSending(false)
 
@@ -184,6 +210,8 @@ export default function ProductosConfigPage() {
       setBulkErrors([])
       setBulkFileName("")
       setBulkEmpId("")
+      setBulkAlmacenId("")
+      setBulkLocalizacionId("")
     }
   }
 
@@ -238,16 +266,20 @@ export default function ProductosConfigPage() {
   async function loadMetadatos() {
     setLoading(true)
     try {
-      const [marcaRes, catRes, subRes, empsData] = await Promise.all([
+      const [marcaRes, catRes, subRes, empsData, almRes, locRes] = await Promise.all([
         getMarcas(),
         getCategorias(),
         getSubcategorias(),
         getEmprendimientos(razonSocialId!),
+        getAlmacenes(),
+        getLocalizaciones(),
       ])
       if (!marcaRes.error) setMarcas(marcaRes.data)
       if (!catRes.error) setCategorias(catRes.data)
       if (!subRes.error) setSubcategorias(subRes.data)
       setEmprendimientos(empsData)
+      if (!almRes.error) setAlmacenes(almRes.data)
+      if (!locRes.error) setLocalizaciones(locRes.data)
     } catch (err: any) {
       toast({ title: "No se pudieron cargar los datos", description: err?.message || "Error de conexion", variant: "destructive" })
     } finally {
@@ -1328,7 +1360,11 @@ export default function ProductosConfigPage() {
       {/* ── Carga masiva de productos ── */}
       <Dialog open={bulkDialogOpen} onOpenChange={(o) => {
         setBulkDialogOpen(o)
-        if (!o) { setBulkRows([]); setBulkErrors([]); setBulkFileName(""); setBulkEmpId("") }
+        if (!o) {
+          setBulkRows([]); setBulkErrors([]); setBulkFileName("")
+          setBulkEmpId(""); setBulkAlmacenId(""); setBulkLocalizacionId("")
+          setLocalizacionesBulk([])
+        }
       }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -1339,22 +1375,67 @@ export default function ProductosConfigPage() {
           </DialogHeader>
 
           <div className="space-y-4">
-            {/* Selector de emprendedor */}
-            <div className="space-y-1.5">
-              <Label>Emprendedor *</Label>
-              <Select value={bulkEmpId} onValueChange={setBulkEmpId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecciona un emprendedor" />
-                </SelectTrigger>
-                <SelectContent>
-                  {emprendimientos.map((e) => (
-                    <SelectItem key={e.id} value={e.id!.toString()}>
-                      {e.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            {/* Selectores: Emprendedor, Almacén, Localización */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Emprendedor */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Emprendedor *</Label>
+                <Select value={bulkEmpId} onValueChange={setBulkEmpId}>
+                  <SelectTrigger className="text-sm">
+                    <SelectValue placeholder="Selecciona…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {emprendimientos.map((e) => (
+                      <SelectItem key={e.id} value={e.id!.toString()}>
+                        {e.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Almacén */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Almacén *</Label>
+                <Select value={bulkAlmacenId} onValueChange={handleBulkAlmacenChange}>
+                  <SelectTrigger className="text-sm">
+                    <SelectValue placeholder="Selecciona…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {almacenes.map((a) => (
+                      <SelectItem key={a.id} value={a.id!.toString()}>
+                        {a.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Localización */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Localización *</Label>
+                <Select
+                  value={bulkLocalizacionId}
+                  onValueChange={setBulkLocalizacionId}
+                  disabled={!bulkAlmacenId}
+                >
+                  <SelectTrigger className="text-sm disabled:opacity-60">
+                    <SelectValue placeholder={bulkAlmacenId ? "Selecciona…" : "Elige almacén primero"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {localizacionesBulk.map((l) => (
+                      <SelectItem key={l.id} value={l.id!.toString()}>
+                        {l.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
+
+            <p className="text-xs text-muted-foreground -mt-1">
+              El almacén y localización se usarán para registrar el inventario inicial de cada producto.
+            </p>
 
             {/* Acciones de archivo */}
             <div className="flex gap-2 flex-wrap">
@@ -1421,7 +1502,7 @@ export default function ProductosConfigPage() {
             <Button variant="outline" onClick={() => setBulkDialogOpen(false)}>Cancelar</Button>
             <Button
               onClick={handleBulkProcess}
-              disabled={bulkSending || bulkRows.length === 0 || !bulkEmpId}
+              disabled={bulkSending || bulkRows.length === 0 || !bulkEmpId || !bulkAlmacenId || !bulkLocalizacionId}
             >
               {bulkSending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {bulkSending ? "Procesando..." : `Crear ${bulkRows.length} producto(s)`}

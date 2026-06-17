@@ -263,7 +263,9 @@ export async function insertProductosMasivoAdmin(
   rows: ExcelProductoRow[],
   emprendimientoId: number,
   razonSocialId: number,
-  usuario: string
+  usuario: string,
+  almacenId?: number,
+  localizacionId?: number
 ): Promise<{ insertados: number; errores: string[] }> {
   const supabase = createAdminClient()
   if (!supabase) return { insertados: 0, errores: ["Cliente no disponible"] }
@@ -276,24 +278,52 @@ export async function insertProductosMasivoAdmin(
       const marcaId     = await resolveOrCreateMarca(supabase, row.marca, razonSocialId)
       const categoriaId = await resolveOrCreateCategoria(supabase, row.categoria, razonSocialId)
 
-      const { error } = await supabase.from("productos").insert({
-        nombre: row.nombre,
-        codigo_barras: row.codigo_barras,
-        precio_venta_sugerido: row.precio_venta_sugerido,
-        costo_promedio: 0,
-        stock_total: row.cantidad_inicial ?? 0,
-        foto_url: null,
-        marca_id: marcaId,
-        categoria_id: categoriaId,
-        emprendimiento_id: emprendimientoId,
-        razon_social_id: razonSocialId,
-        usuario,
-      })
+      const cantidadInicial = row.cantidad_inicial ?? 0
 
-      if (error) {
-        errores.push(`${row.nombre}: ${error.message}`)
-      } else {
-        insertados++
+      // Insert product
+      const { data: productoInsertado, error: prodError } = await supabase
+        .from("productos")
+        .insert({
+          nombre: row.nombre,
+          codigo_barras: row.codigo_barras,
+          precio_venta_sugerido: row.precio_venta_sugerido,
+          costo_promedio: 0,
+          stock_total: cantidadInicial,
+          foto_url: null,
+          marca_id: marcaId,
+          categoria_id: categoriaId,
+          emprendimiento_id: emprendimientoId,
+          razon_social_id: razonSocialId,
+          usuario,
+        })
+        .select("id")
+        .single()
+
+      if (prodError) {
+        errores.push(`${row.nombre}: ${prodError.message}`)
+        continue
+      }
+
+      insertados++
+
+      // Create initial inventory transaction if quantity > 0 and location is provided
+      if (cantidadInicial > 0 && almacenId && localizacionId && productoInsertado?.id) {
+        const { error: transError } = await supabase
+          .from("transacciones_inventario")
+          .insert({
+            producto_id: productoInsertado.id,
+            almacen_id: almacenId,
+            localizacion_id: localizacionId,
+            tipo_movimiento: "Ingreso Manual",
+            cantidad: cantidadInicial,
+            costo_o_precio_unitario: 0,
+            razon_social_id: razonSocialId,
+            usuario,
+          })
+
+        if (transError) {
+          errores.push(`${row.nombre} (inventario): ${transError.message}`)
+        }
       }
     } catch (err: any) {
       errores.push(`${row.nombre}: ${err?.message ?? "Error desconocido"}`)
