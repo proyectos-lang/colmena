@@ -10,6 +10,7 @@ import {
   Filter,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   AlertTriangle,
   CheckCircle2,
   XCircle,
@@ -71,6 +72,8 @@ export default function ValoracionPage() {
   const [rotacionFiltro, setRotacionFiltro] = React.useState<RotacionFiltro>("todos")
   const [emprendimientoFiltro, setEmprendimientoFiltro] = React.useState<string>("todos")
   const [expandedRows, setExpandedRows] = React.useState<Set<number>>(new Set())
+  const [currentPage, setCurrentPage] = React.useState(1)
+  const PAGE_SIZE = 100
 
   React.useEffect(() => {
     loadCatalogos()
@@ -160,6 +163,15 @@ export default function ValoracionPage() {
       productosMas90Dias,
     }
   }, [productosFiltrados])
+
+  const totalPages = Math.ceil(productosFiltrados.length / PAGE_SIZE)
+
+  const productosPaginados = React.useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return productosFiltrados.slice(start, start + PAGE_SIZE)
+  }, [productosFiltrados, currentPage])
+
+  React.useEffect(() => { setCurrentPage(1) }, [searchTerm, estadoFiltro, almacenFiltro, rotacionFiltro, emprendimientoFiltro])
 
   function toggleRow(id: number) {
     setExpandedRows((prev) => {
@@ -495,8 +507,8 @@ export default function ValoracionPage() {
           ) : (
             <>
               {/* Mobile */}
-              <div className="block lg:hidden divide-y">
-                {productosFiltrados.map((p) => (
+              <div className="block lg:hidden divide-y overflow-y-auto max-h-[70vh]">
+                {productosPaginados.map((p) => (
                   <Collapsible key={p.id}>
                     <div className="p-4">
                       <div className="flex items-start justify-between gap-2 mb-2">
@@ -581,7 +593,7 @@ export default function ValoracionPage() {
               </div>
 
               {/* Desktop Table */}
-              <div className="hidden lg:block overflow-x-auto">
+              <div className="hidden lg:block overflow-x-auto overflow-y-auto max-h-[600px]">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-amber-50/50">
@@ -605,7 +617,7 @@ export default function ValoracionPage() {
                       </TableRow>
                     ))}
 
-                    {!loadingTable && productosFiltrados.map((p) => (
+                    {!loadingTable && productosPaginados.map((p) => (
                       <React.Fragment key={p.id}>
                         <TableRow
                           className={`cursor-pointer hover:bg-orange-50/30 transition-colors ${expandedRows.has(p.id) ? "bg-amber-50/40" : ""}`}
@@ -687,8 +699,38 @@ export default function ValoracionPage() {
                 </Table>
               </div>
 
-              {/* Footer totales */}
-              <div className="p-4 md:p-6 border-t bg-muted/20">
+              {/* Footer: totales + paginación */}
+              <div className="p-4 md:p-6 border-t bg-muted/20 space-y-3">
+                {/* Paginación */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      Anterior
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      Página {currentPage} de {totalPages} · mostrando {((currentPage - 1) * PAGE_SIZE) + 1}–{Math.min(currentPage * PAGE_SIZE, productosFiltrados.length)} de {productosFiltrados.length}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      disabled={currentPage === totalPages}
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    >
+                      Siguiente
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+
+                {/* Totales */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <div className="p-2 rounded-lg bg-primary/10">

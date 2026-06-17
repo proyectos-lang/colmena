@@ -192,20 +192,39 @@ export async function getValoracionInventarioExtendida(): Promise<{ data: Produc
   if (!supabase) return { data: [], error: 'Cliente no disponible' }
 
   try {
-    // Get products with prices
-    const { data: productos, error: prodError } = await supabase
-      .from('productos')
-      .select('id, nombre, codigo_barras, stock_total, costo_promedio, precio_venta_sugerido, emprendimiento_id, emprendimientos(nombre)')
-      .order('nombre', { ascending: true })
+    // Fetch ALL products paginated (Supabase default cap is 1000 rows per query)
+    const PAGE = 1000
+    const allProductos: any[] = []
+    let prodFrom = 0
+    while (true) {
+      const { data: batch, error: prodError } = await supabase
+        .from('productos')
+        .select('id, nombre, codigo_barras, stock_total, costo_promedio, precio_venta_sugerido, emprendimiento_id, emprendimientos(nombre)')
+        .order('nombre', { ascending: true })
+        .range(prodFrom, prodFrom + PAGE - 1)
+      if (prodError) return { data: [], error: prodError.message }
+      if (!batch || batch.length === 0) break
+      allProductos.push(...batch)
+      if (batch.length < PAGE) break
+      prodFrom += PAGE
+    }
+    const productos = allProductos
 
-    if (prodError) return { data: [], error: prodError.message }
-
-    // Get all transactions grouped by product and almacen
-    const { data: transacciones, error: transError } = await supabase
-      .from('transacciones_inventario')
-      .select('producto_id, almacen_id, cantidad, tipo_movimiento, fecha, almacenes(nombre)')
-
-    if (transError) return { data: [], error: transError.message }
+    // Fetch ALL transactions paginated
+    const allTransacciones: any[] = []
+    let transFrom = 0
+    while (true) {
+      const { data: batch, error: transError } = await supabase
+        .from('transacciones_inventario')
+        .select('producto_id, almacen_id, cantidad, tipo_movimiento, fecha, almacenes(nombre)')
+        .range(transFrom, transFrom + PAGE - 1)
+      if (transError) return { data: [], error: transError.message }
+      if (!batch || batch.length === 0) break
+      allTransacciones.push(...batch)
+      if (batch.length < PAGE) break
+      transFrom += PAGE
+    }
+    const transacciones = allTransacciones
 
     const now = new Date()
 
@@ -337,21 +356,40 @@ export async function getValoracionPorAlmacen(almacenId: number): Promise<{ data
   if (!supabase) return { data: [], error: 'Cliente no disponible' }
 
   try {
-    // Get products with prices
-    const { data: productos, error: prodError } = await supabase
-      .from('productos')
-      .select('id, nombre, codigo_barras, costo_promedio, precio_venta_sugerido, emprendimiento_id, emprendimientos(nombre)')
-      .order('nombre', { ascending: true })
+    // Fetch ALL products paginated
+    const PAGE = 1000
+    const allProductos: any[] = []
+    let prodFrom = 0
+    while (true) {
+      const { data: batch, error: prodError } = await supabase
+        .from('productos')
+        .select('id, nombre, codigo_barras, costo_promedio, precio_venta_sugerido, emprendimiento_id, emprendimientos(nombre)')
+        .order('nombre', { ascending: true })
+        .range(prodFrom, prodFrom + PAGE - 1)
+      if (prodError) return { data: [], error: prodError.message }
+      if (!batch || batch.length === 0) break
+      allProductos.push(...batch)
+      if (batch.length < PAGE) break
+      prodFrom += PAGE
+    }
+    const productos = allProductos
 
-    if (prodError) return { data: [], error: prodError.message }
-
-    // Get transactions only for this almacen
-    const { data: transacciones, error: transError } = await supabase
-      .from('transacciones_inventario')
-      .select('producto_id, cantidad, tipo_movimiento, fecha')
-      .eq('almacen_id', almacenId)
-
-    if (transError) return { data: [], error: transError.message }
+    // Fetch ALL transactions for this almacen paginated
+    const allTransacciones: any[] = []
+    let transFrom = 0
+    while (true) {
+      const { data: batch, error: transError } = await supabase
+        .from('transacciones_inventario')
+        .select('producto_id, cantidad, tipo_movimiento, fecha')
+        .eq('almacen_id', almacenId)
+        .range(transFrom, transFrom + PAGE - 1)
+      if (transError) return { data: [], error: transError.message }
+      if (!batch || batch.length === 0) break
+      allTransacciones.push(...batch)
+      if (batch.length < PAGE) break
+      transFrom += PAGE
+    }
+    const transacciones = allTransacciones
 
     // Get almacen name
     const { data: almacenData } = await supabase
