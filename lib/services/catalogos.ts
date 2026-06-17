@@ -152,6 +152,10 @@ export interface BuscarProductosOpts {
   emprendimientoId?: number | null
   soloTiendaPropia?: boolean
   limit?: number
+  /** Página 1-indexada. Si se provee, se usa range() en vez de limit(). */
+  page?: number
+  /** Tamaño de página cuando se usa `page`. Default 20. */
+  pageSize?: number
 }
 
 /**
@@ -162,19 +166,16 @@ export interface BuscarProductosOpts {
 export async function buscarProductos(
   query: string,
   opts?: BuscarProductosOpts
-): Promise<{ data: Producto[]; error: string | null }> {
-  if (!isSupabaseConfigured()) return { data: [], error: null }
+): Promise<{ data: Producto[]; total: number; error: string | null }> {
+  if (!isSupabaseConfigured()) return { data: [], total: 0, error: null }
   const supabase = createClient()
-  if (!supabase) return { data: [], error: 'Cliente no disponible' }
-
-  const limit = opts?.limit ?? 80
+  if (!supabase) return { data: [], total: 0, error: 'Cliente no disponible' }
 
   try {
     let q = supabase
       .from('productos')
-      .select('*, marcas(nombre), categorias(nombre), emprendimientos(nombre)')
+      .select('*, marcas(nombre), categorias(nombre), emprendimientos(nombre)', { count: 'exact' })
       .order('nombre', { ascending: true })
-      .limit(limit)
 
     if (query.trim()) {
       q = q.or(`nombre.ilike.%${query.trim()}%,codigo_barras.ilike.%${query.trim()}%`)
@@ -187,8 +188,16 @@ export async function buscarProductos(
       q = q.eq('emprendimiento_id', opts.emprendimientoId)
     }
 
-    const { data, error } = await q
-    if (error) return { data: [], error: error.message }
+    if (opts?.page != null) {
+      const size = opts.pageSize ?? 20
+      const pg = Math.max(1, opts.page)
+      q = (q as any).range((pg - 1) * size, pg * size - 1)
+    } else {
+      q = q.limit(opts?.limit ?? 80)
+    }
+
+    const { data, error, count } = await q
+    if (error) return { data: [], total: 0, error: error.message }
 
     const productos = (data || []).map((p: any) => ({
       ...p,
@@ -200,9 +209,9 @@ export async function buscarProductos(
       categorias: undefined,
       emprendimientos: undefined,
     }))
-    return { data: productos, error: null }
+    return { data: productos, total: count ?? 0, error: null }
   } catch {
-    return { data: [], error: 'Error de conexion' }
+    return { data: [], total: 0, error: 'Error de conexion' }
   }
 }
 

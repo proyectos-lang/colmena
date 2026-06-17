@@ -10,6 +10,11 @@ import {
   Check,
   ImageIcon,
   Loader2,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  ShoppingBag,
+  Trash2,
 } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
@@ -27,58 +32,71 @@ import type { Producto, Marca, Categoria } from "@/lib/services/catalogos"
 
 const VIEW_STORAGE_KEY = "pos.catalogo.view"
 const STOCK_BAJO = 5
+const PAGE_SIZE = 20
 export const TODOS = "__todos__"
 
 interface ProductCatalogProps {
-  productos: Producto[]
   marcas: Marca[]
   categorias: Categoria[]
   idsEnVenta: number[]
   onAdd: (producto: Producto) => void
   disabled?: boolean
   localizacionSeleccionada?: boolean
+  /** ID numérico de la localización activa (para detectar cambios y refrescar stock). */
+  localizacionId?: number | null
   stockPorLocalizacion?: Record<number, number>
   loadingStock?: boolean
   /**
-   * Cuando se provee esta función el catálogo hace búsquedas server-side con
-   * debounce de 300 ms en lugar de filtrar los `productos` en cliente.
-   * Ideal para catálogos con 1 000+ artículos.
+   * Fetches products from the server. Used for both pagination (q='') and
+   * search (q=user query). Returns data + total row count.
    */
-  buscarFn?: (q: string, catId: string, marcaId: string) => Promise<Producto[]>
-  /** Número total de productos en el sistema (para la leyenda de carga inicial). */
-  totalProductos?: number
+  buscarFn: (
+    q: string,
+    catId: string,
+    marcaId: string,
+    page: number,
+    pageSize: number
+  ) => Promise<{ data: Producto[]; total: number }>
+  /** Called with the IDs of the products currently visible, so the parent can fetch stock. */
+  onPageLoad?: (ids: number[]) => void
 }
 
 export function ProductCatalog({
-  productos,
   marcas,
   categorias,
   idsEnVenta,
   onAdd,
   disabled,
   localizacionSeleccionada = false,
+  localizacionId,
   stockPorLocalizacion,
   loadingStock = false,
   buscarFn,
-  totalProductos,
+  onPageLoad,
 }: ProductCatalogProps) {
   const [view, setView] = React.useState<"grid" | "list">("grid")
-  const [search, setSearch] = React.useState("")
   const [categoriaFiltro, setCategoriaFiltro] = React.useState<string>(TODOS)
   const [marcaFiltro, setMarcaFiltro] = React.useState<string>(TODOS)
 
-  // Server-side search state
-  const [resultadosServer, setResultadosServer] = React.useState<Producto[] | null>(null)
-  const [buscando, setBuscando] = React.useState(false)
+  // ── Browse mode (no active search) ───────────────────────────────────────
+  const [currentPage, setCurrentPage] = React.useState(1)
+  const [pageData, setPageData] = React.useState<Producto[]>([])
+  const [pageTotal, setPageTotal] = React.useState(0)
+  const [loadingPage, setLoadingPage] = React.useState(false)
 
-  const getStock = React.useCallback(
-    (p: Producto): number => {
-      if (localizacionSeleccionada) return stockPorLocalizacion?.[p.id!] ?? 0
-      return p.stock_total ?? 0
-    },
-    [localizacionSeleccionada, stockPorLocalizacion]
-  )
+  // ── Search mode (committed when user clicks lupa or presses Enter) ────────
+  const [searchInput, setSearchInput] = React.useState("")   // live text in the input
+  const [activeSearch, setActiveSearch] = React.useState("") // committed query
+  const [searchData, setSearchData] = React.useState<Producto[]>([])
+  const [searchTotal, setSearchTotal] = React.useState(0)
+  const [loadingSearch, setLoadingSearch] = React.useState(false)
 
+  // ── Cola (selection queue, only active in search mode) ───────────────────
+  const [cola, setCola] = React.useState<Producto[]>([])
+
+  const isSearchMode = activeSearch !== ""
+
+  // ── Persist view preference ───────────────────────────────────────────────
   React.useEffect(() => {
     try {
       const saved = localStorage.getItem(VIEW_STORAGE_KEY)
@@ -91,75 +109,151 @@ export function ProductCatalog({
     try { localStorage.setItem(VIEW_STORAGE_KEY, next) } catch { /* no-op */ }
   }
 
-  // Cuando cambia buscarFn (contexto padre cambió, ej. emprendimiento) resetear resultados
+  // Ref para onPageLoad — evita incluirlo en dep arrays y causar re-fetch en bucle
+  const onPageLoadRef = React.useRef(onPageLoad)
+  onPageLoadRef.current = onPageLoad
+
+  // ── Load browse page ──────────────────────────────────────────────────────
+  const loadBrowsePage = React.useCallback(async () => {
+    setLoadingPage(true)
+    try {
+      const { data, total } = await buscarFn("", categoriaFiltro, marcaFiltro, currentPage, PAGE_SIZE)
+      setPageData(data)
+      setPageTotal(total)
+      const ids = data.map((p) => p.id!).filter(Boolean)
+      if (ids.length > 0) onPageLoadRef.current?.(ids)
+    } catch { /* no-op */ }
+    finally { setLoadingPage(false) }
+  }, [buscarFn, categoriaFiltro, marcaFiltro, currentPage])
+
   React.useEffect(() => {
-    setResultadosServer(null)
+    if (isSearchMode) return
+    loadBrowsePage()
+  }, [isSearchMode, loadBrowsePage])
+
+  // Reset to page 1 when buscarFn changes (emprendimiento filter changed in parent)
+  React.useEffect(() => {
+    setCurrentPage(1)
+    setActiveSearch("")
+    setSearchInput("")
+    setCola([])
   }, [buscarFn])
 
-  // Búsqueda server-side con debounce
+  // Reset page when category/marca filter changes
   React.useEffect(() => {
-    if (!buscarFn) return
+    setCurrentPage(1)
+  }, [categoriaFiltro, marcaFiltro])
 
-    const isActive = search.trim() || categoriaFiltro !== TODOS || marcaFiltro !== TODOS
-    if (!isActive) {
-      setResultadosServer(null)
-      return
-    }
+  // ── Load search results ───────────────────────────────────────────────────
+  React.useEffect(() => {
+    if (!isSearchMode) return
+    let cancelled = false
+    setLoadingSearch(true)
+    buscarFn(activeSearch, categoriaFiltro, marcaFiltro, 1, 80)
+      .then(({ data, total }) => {
+        if (cancelled) return
+        setSearchData(data)
+        setSearchTotal(total)
+        const ids = data.map((p) => p.id!).filter(Boolean)
+        if (ids.length > 0) onPageLoadRef.current?.(ids)
+      })
+      .catch(() => { /* no-op */ })
+      .finally(() => { if (!cancelled) setLoadingSearch(false) })
+    return () => { cancelled = true }
+  }, [isSearchMode, activeSearch, categoriaFiltro, marcaFiltro, buscarFn])
 
-    setBuscando(true)
-    const timer = setTimeout(async () => {
-      try {
-        const results = await buscarFn(search, categoriaFiltro, marcaFiltro)
-        setResultadosServer(results)
-      } finally {
-        setBuscando(false)
-      }
-    }, 300)
+  // ── Refresh stock when location changes ──────────────────────────────────
+  const prevLocRef = React.useRef<number | null | undefined>(undefined)
+  React.useEffect(() => {
+    if (localizacionId === prevLocRef.current) return
+    prevLocRef.current = localizacionId ?? null
+    if (!localizacionId) return
+    const visibleIds = isSearchMode
+      ? searchData.map((p) => p.id!).filter(Boolean)
+      : pageData.map((p) => p.id!).filter(Boolean)
+    if (visibleIds.length > 0) onPageLoadRef.current?.(visibleIds)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localizacionId])
 
-    return () => clearTimeout(timer)
-  }, [buscarFn, search, categoriaFiltro, marcaFiltro])
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const getStock = React.useCallback(
+    (p: Producto): number => {
+      if (localizacionSeleccionada) return stockPorLocalizacion?.[p.id!] ?? 0
+      return p.stock_total ?? 0
+    },
+    [localizacionSeleccionada, stockPorLocalizacion]
+  )
 
-  // Filtrado: usa resultados del servidor si están disponibles, si no filtra la lista inicial
-  const filtrados = React.useMemo(() => {
-    const fuente = resultadosServer !== null ? resultadosServer : productos
-    if (resultadosServer !== null) {
-      // El servidor ya filtró por texto/cat/marca; solo aplicamos disponibilidad local
-      return fuente.filter(p =>
-        !localizacionSeleccionada || (stockPorLocalizacion?.[p.id!] ?? 0) > 0
-      )
-    }
-    // Filtrado local (lista inicial o sin buscarFn)
-    const q = search.toLowerCase().trim()
-    return fuente.filter(p => {
-      const matchTexto = !q ||
-        (p.nombre ?? "").toLowerCase().includes(q) ||
-        (p.codigo_barras ?? "").toLowerCase().includes(q)
-      const matchCat = categoriaFiltro === TODOS || String(p.categoria_id ?? "") === categoriaFiltro
-      const matchMarca = marcaFiltro === TODOS || String(p.marca_id ?? "") === marcaFiltro
-      const matchDisp = !localizacionSeleccionada || (stockPorLocalizacion?.[p.id!] ?? 0) > 0
-      return matchTexto && matchCat && matchMarca && matchDisp
-    })
-  }, [resultadosServer, productos, search, categoriaFiltro, marcaFiltro, localizacionSeleccionada, stockPorLocalizacion])
+  function commitSearch() {
+    const q = searchInput.trim()
+    if (!q) return
+    setActiveSearch(q)
+  }
 
-  const mostrandoInicial = buscarFn && resultadosServer === null && !buscando
-  const sinFiltrosActivos = !search.trim() && categoriaFiltro === TODOS && marcaFiltro === TODOS
+  function clearSearch() {
+    setSearchInput("")
+    setActiveSearch("")
+    setSearchData([])
+    setSearchTotal(0)
+    setCola([])
+  }
 
+  function addToCola(p: Producto) {
+    setCola((prev) => (prev.some((x) => x.id === p.id) ? prev : [...prev, p]))
+  }
+
+  function removeFromCola(id: number) {
+    setCola((prev) => prev.filter((p) => p.id !== id))
+  }
+
+  function confirmarCola() {
+    cola.forEach((p) => onAdd(p))
+    setCola([])
+    clearSearch()
+  }
+
+  const totalPages = Math.ceil(pageTotal / PAGE_SIZE)
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col gap-3 h-full min-h-0">
-      {/* Barra de búsqueda + filtros + toggle de vista */}
+
+      {/* ── Barra de búsqueda ─────────────────────────────────────────────── */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <div className="relative flex-1 flex gap-1">
             <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitSearch() }}
               placeholder="Buscar por nombre o código de barras..."
-              className="pl-9"
+              className="pr-8"
             />
-            {buscando && (
-              <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+            {searchInput && (
+              <button
+                type="button"
+                className="absolute right-[2.75rem] top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={clearSearch}
+                tabIndex={-1}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             )}
+            <Button
+              type="button"
+              variant="default"
+              size="icon"
+              className="h-10 w-10 shrink-0"
+              onClick={commitSearch}
+              disabled={!searchInput.trim()}
+              title="Buscar"
+            >
+              {loadingSearch ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+            </Button>
           </div>
           <div className="flex items-center rounded-md border bg-muted/40 p-0.5 shrink-0">
             <Button
@@ -212,73 +306,166 @@ export function ProductCatalog({
           </Select>
         </div>
 
-        {/* Leyenda de resultados */}
-        {buscarFn && (
-          <p className="text-[11px] text-muted-foreground px-0.5">
-            {buscando ? (
-              "Buscando..."
-            ) : mostrandoInicial && sinFiltrosActivos ? (
+        {/* Leyenda de estado */}
+        <p className="text-[11px] text-muted-foreground px-0.5 h-4">
+          {isSearchMode ? (
+            loadingSearch ? "Buscando..." : (
               <>
-                Mostrando los primeros {productos.length} productos
-                {totalProductos && totalProductos > productos.length
-                  ? ` de ${totalProductos.toLocaleString()} — escribe para buscar entre todos`
-                  : ""}
+                {searchTotal} resultado{searchTotal !== 1 ? "s" : ""} para «{activeSearch}»
+                {searchTotal > 80 && " · muestra los primeros 80 — refina la búsqueda"}
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="ml-2 underline hover:no-underline"
+                >
+                  limpiar
+                </button>
               </>
-            ) : (
-              `${filtrados.length} resultado${filtrados.length !== 1 ? "s" : ""}`
-            )}
-          </p>
-        )}
+            )
+          ) : loadingPage ? (
+            "Cargando..."
+          ) : (
+            `${pageTotal.toLocaleString()} producto${pageTotal !== 1 ? "s" : ""} · página ${currentPage} de ${Math.max(1, totalPages)}`
+          )}
+        </p>
       </div>
 
-      {/* Resultados */}
+      {/* ── Lista de resultados ──────────────────────────────────────────────── */}
       <div className="flex-1 overflow-auto min-h-0">
-        {loadingStock ? (
+        {(loadingPage && !isSearchMode) || (loadingSearch && isSearchMode) ? (
+          <div className="h-full min-h-40 flex flex-col items-center justify-center text-muted-foreground gap-2 py-10">
+            <Loader2 className="h-8 w-8 animate-spin opacity-40" />
+            <p className="text-sm">{isSearchMode ? "Buscando productos..." : "Cargando catálogo..."}</p>
+          </div>
+        ) : loadingStock && !isSearchMode ? (
           <div className="h-full min-h-40 flex flex-col items-center justify-center text-muted-foreground gap-2 py-10">
             <Loader2 className="h-8 w-8 animate-spin opacity-40" />
             <p className="text-sm">Cargando disponibilidad...</p>
           </div>
-        ) : buscando ? (
-          <div className="h-full min-h-40 flex flex-col items-center justify-center text-muted-foreground gap-2 py-10">
-            <Loader2 className="h-8 w-8 animate-spin opacity-40" />
-            <p className="text-sm">Buscando productos...</p>
-          </div>
-        ) : filtrados.length === 0 ? (
+        ) : (isSearchMode ? searchData : pageData).length === 0 ? (
           <div className="h-full min-h-40 flex flex-col items-center justify-center text-muted-foreground gap-2 py-10">
             <ImageIcon className="h-10 w-10 opacity-20" />
             <p className="text-sm">
-              {localizacionSeleccionada
-                ? "No hay productos disponibles en esta localizacion."
-                : "No se encontraron productos."}
+              {isSearchMode
+                ? "No se encontraron productos para esa búsqueda."
+                : localizacionSeleccionada
+                ? "No hay productos disponibles en esta localización."
+                : "No hay productos en el catálogo."}
             </p>
           </div>
         ) : view === "grid" ? (
           <ProductGrid
-            productos={filtrados}
+            productos={isSearchMode ? searchData : pageData}
             idsEnVenta={idsEnVenta}
-            onAdd={onAdd}
+            cola={isSearchMode ? cola.map((p) => p.id!) : []}
+            onAdd={isSearchMode ? addToCola : onAdd}
             disabled={disabled}
             getStock={getStock}
+            searchMode={isSearchMode}
           />
         ) : (
           <ProductTable
-            productos={filtrados}
+            productos={isSearchMode ? searchData : pageData}
             idsEnVenta={idsEnVenta}
-            onAdd={onAdd}
+            cola={isSearchMode ? cola.map((p) => p.id!) : []}
+            onAdd={isSearchMode ? addToCola : onAdd}
             disabled={disabled}
             getStock={getStock}
+            searchMode={isSearchMode}
           />
         )}
       </div>
+
+      {/* ── Cola de selección (solo en modo búsqueda) ─────────────────────── */}
+      {isSearchMode && cola.length > 0 && (
+        <div className="border rounded-lg bg-primary/5 p-3 space-y-2 shrink-0">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-primary flex items-center gap-1.5">
+              <ShoppingBag className="h-3.5 w-3.5" />
+              Cola de selección ({cola.length})
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              onClick={confirmarCola}
+              disabled={disabled}
+              className="h-7 text-xs gap-1.5"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Agregar {cola.length} al carrito
+            </Button>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {cola.map((p) => (
+              <span
+                key={p.id}
+                className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary text-[11px] px-2 py-0.5 font-medium max-w-[180px]"
+              >
+                <span className="truncate">{p.nombre}</span>
+                <button
+                  type="button"
+                  onClick={() => removeFromCola(p.id!)}
+                  className="shrink-0 hover:text-destructive"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Paginación (solo en modo browse) ────────────────────────────────── */}
+      {!isSearchMode && totalPages > 1 && (
+        <div className="flex items-center justify-between shrink-0 pt-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1 h-8"
+            disabled={currentPage === 1 || loadingPage}
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Anterior
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {currentPage} / {totalPages}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1 h-8"
+            disabled={currentPage >= totalPages || loadingPage}
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+          >
+            Siguiente
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
     </div>
   )
+}
+
+// ── Shared list component types ───────────────────────────────────────────────
+
+interface ListProps {
+  productos: Producto[]
+  idsEnVenta: number[]
+  cola: number[]
+  onAdd: (p: Producto) => void
+  disabled?: boolean
+  getStock: (p: Producto) => number
+  searchMode: boolean
 }
 
 function stockClass(stock: number): string {
   return stock <= STOCK_BAJO ? "text-red-600" : "text-emerald-600"
 }
 
-function ProductImage({ url, nombre, className }: { url?: string; nombre: string; className?: string }) {
+function ProductImage({ url, nombre, className }: { url?: string | null; nombre: string; className?: string }) {
   const [errored, setErrored] = React.useState(false)
   if (!url || errored) {
     return (
@@ -289,7 +476,7 @@ function ProductImage({ url, nombre, className }: { url?: string; nombre: string
   }
   return (
     <Image
-      src={url || "/placeholder.svg"}
+      src={url}
       alt={nombre}
       width={160}
       height={160}
@@ -300,19 +487,14 @@ function ProductImage({ url, nombre, className }: { url?: string; nombre: string
   )
 }
 
-interface ListProps {
-  productos: Producto[]
-  idsEnVenta: number[]
-  onAdd: (p: Producto) => void
-  disabled?: boolean
-  getStock: (p: Producto) => number
-}
+// ── Grid view ─────────────────────────────────────────────────────────────────
 
-function ProductGrid({ productos, idsEnVenta, onAdd, disabled, getStock }: ListProps) {
+function ProductGrid({ productos, idsEnVenta, cola, onAdd, disabled, getStock, searchMode }: ListProps) {
   return (
     <div className="grid grid-cols-2 min-[480px]:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5 sm:gap-3">
       {productos.map((p) => {
         const enVenta = idsEnVenta.includes(p.id!)
+        const enCola = cola.includes(p.id!)
         const stock = getStock(p)
         return (
           <button
@@ -324,12 +506,18 @@ function ProductGrid({ productos, idsEnVenta, onAdd, disabled, getStock }: ListP
               "group relative flex flex-col rounded-lg border bg-card text-left overflow-hidden transition-colors",
               "hover:border-primary hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
               "disabled:opacity-50 disabled:cursor-not-allowed",
-              enVenta && "border-primary"
+              enVenta && !searchMode && "border-primary",
+              enCola && "border-primary bg-primary/5"
             )}
           >
             <div className="relative aspect-square w-full">
               <ProductImage url={p.foto_url} nombre={p.nombre} className="h-full w-full" />
-              {enVenta && (
+              {(enVenta && !searchMode) && (
+                <span className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow">
+                  <Check className="h-3.5 w-3.5" />
+                </span>
+              )}
+              {enCola && (
                 <span className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow">
                   <Check className="h-3.5 w-3.5" />
                 </span>
@@ -353,7 +541,9 @@ function ProductGrid({ productos, idsEnVenta, onAdd, disabled, getStock }: ListP
   )
 }
 
-function ProductTable({ productos, idsEnVenta, onAdd, disabled, getStock }: ListProps) {
+// ── List / table view ─────────────────────────────────────────────────────────
+
+function ProductTable({ productos, idsEnVenta, cola, onAdd, disabled, getStock, searchMode }: ListProps) {
   return (
     <div className="rounded-lg border overflow-x-auto">
       <table className="w-full min-w-[34rem] text-sm">
@@ -372,15 +562,17 @@ function ProductTable({ productos, idsEnVenta, onAdd, disabled, getStock }: List
         <tbody className="divide-y">
           {productos.map((p) => {
             const enVenta = idsEnVenta.includes(p.id!)
+            const enCola = cola.includes(p.id!)
             const stock = getStock(p)
             return (
-              <tr key={p.id} className="hover:bg-muted/40">
+              <tr key={p.id} className={cn("hover:bg-muted/40", enCola && "bg-primary/5")}>
                 <td className="px-2 sm:px-3 py-2">
                   <ProductImage url={p.foto_url} nombre={p.nombre} className="h-9 w-9 rounded-md shrink-0" />
                 </td>
                 <td className="px-2 sm:px-3 py-2 max-w-[10rem]">
                   <span className="font-medium line-clamp-2 break-words">{p.nombre}</span>
-                  {enVenta && <Badge variant="secondary" className="mt-1 text-[10px]">En venta</Badge>}
+                  {enVenta && !searchMode && <Badge variant="secondary" className="mt-1 text-[10px]">En venta</Badge>}
+                  {enCola && <Badge variant="default" className="mt-1 text-[10px]">En cola</Badge>}
                 </td>
                 <td className="px-3 py-2 font-mono text-xs text-muted-foreground hidden md:table-cell whitespace-nowrap">
                   {p.codigo_barras || "-"}
@@ -397,14 +589,14 @@ function ProductTable({ productos, idsEnVenta, onAdd, disabled, getStock }: List
                   <Button
                     type="button"
                     size="icon"
-                    variant="outline"
+                    variant={enCola ? "default" : "outline"}
                     className="h-8 w-8"
                     disabled={disabled}
                     onClick={() => onAdd(p)}
-                    title="Agregar al carrito"
-                    aria-label={`Agregar ${p.nombre} al carrito`}
+                    title={searchMode ? (enCola ? "Quitar de la cola" : "Agregar a la cola") : "Agregar al carrito"}
+                    aria-label={`${searchMode ? "Cola" : "Agregar"} ${p.nombre}`}
                   >
-                    <Plus className="h-4 w-4" />
+                    {enCola ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
                   </Button>
                 </td>
               </tr>

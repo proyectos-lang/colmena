@@ -286,7 +286,6 @@ export default function NuevaVentaPage() {
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
   const [clientes, setClientes] = React.useState<Cliente[]>([])
-  const [productos, setProductos] = React.useState<Producto[]>([])
   const [marcas, setMarcas] = React.useState<Marca[]>([])
   const [categorias, setCategorias] = React.useState<Categoria[]>([])
   const [almacenes, setAlmacenes] = React.useState<Almacen[]>([])
@@ -362,9 +361,10 @@ export default function NuevaVentaPage() {
     setLoading(true)
     try {
       console.log("[v0][NuevaVenta] cargando datos...")
-      const [clientesRes, productosRes, almacenesRes, localizacionesRes, correlativo, cuentasRes, marcasRes, categoriasRes, empsData] = await Promise.all([
+      // El catálogo de productos se carga de forma autónoma (paginado, 20/página).
+      // Solo traemos aquí los metadatos necesarios para el formulario.
+      const [clientesRes, almacenesRes, localizacionesRes, correlativo, cuentasRes, marcasRes, categoriasRes, empsData] = await Promise.all([
         getClientes(),
-        buscarProductos('', { limit: 100 }),
         getAlmacenes(),
         getLocalizaciones(),
         getNextCorrelativo(),
@@ -376,50 +376,30 @@ export default function NuevaVentaPage() {
 
       console.log("[v0][NuevaVenta] datos recibidos:", {
         clientes: clientesRes.data?.length,
-        productos: productosRes.data?.length,
         almacenes: almacenesRes.data?.length,
         localizaciones: localizacionesRes.data?.length,
         correlativo,
-        errores: {
-          clientes: clientesRes.error,
-          productos: productosRes.error,
-          almacenes: almacenesRes.error,
-          localizaciones: localizacionesRes.error,
-        },
       })
-      
+
       setClientes(clientesRes.data || [])
-      setProductos(productosRes.data || [])
       setMarcas(marcasRes.data || [])
       setCategorias(categoriasRes.data || [])
       setAlmacenes(almacenesRes.data || [])
       setEmprendimientos(empsData.filter((e) => e.activo !== false))
       setLocalizaciones(localizacionesRes.data || [])
       setNumeroFactura(correlativo)
-      // Solo cuentas activas se ofrecen para nuevos pagos. Si la migracion 011
-      // aun no se aplico, cuentasRes.data viene vacio y el desglose ofrecera
-      // solo Efectivo / Credito (modo degradado).
       setCuentas((cuentasRes.data || []).filter((c) => c.activo ?? true))
-      
-      // Set default almacen if only one exists
+
+      // Auto-seleccionar almacén/localización si solo hay uno
       if (almacenesRes.data && almacenesRes.data.length === 1) {
         const defaultAlmacenId = String(almacenesRes.data[0].id)
         setAlmacenId(defaultAlmacenId)
         const filtradas = (localizacionesRes.data || []).filter(l => l.almacen_id === almacenesRes.data[0].id)
         setLocalizacionesFiltradas(filtradas)
         if (filtradas.length === 1) {
-          const defaultLocId = filtradas[0].id!
-          setLocalizacionId(String(defaultLocId))
-          // Auto-selected location: fetch stock catalog using fresh product data
-          // (can't use `productos` state yet — React state updates are async)
-          const prodIds = (productosRes.data || []).map((p: any) => p.id!).filter(Boolean)
-          if (prodIds.length > 0) {
-            setLoadingCatalogo(true)
-            getStockMultipleProducts(prodIds, defaultLocId)
-              .then(({ data: stockMap }) => setStockCatalogo(stockMap || {}))
-              .catch(() => setStockCatalogo({}))
-              .finally(() => setLoadingCatalogo(false))
-          }
+          setLocalizacionId(String(filtradas[0].id!))
+          // El stock del catálogo lo cargará onPageLoad cuando el catálogo
+          // termine de renderizar su primera página.
         }
       }
     } catch (err: any) {
@@ -447,19 +427,18 @@ export default function NuevaVentaPage() {
     if (filtradas.length === 1) {
       const locId = String(filtradas[0].id)
       setLocalizacionId(locId)
-      // Fetch stock for this localization
       fetchStockForLineas(Number(locId))
-      fetchStockCatalogo(Number(locId))
+      // El stock del catálogo se cargará vía onPageLoad cuando el catálogo
+      // detecte el cambio de localizacionId.
+      setStockCatalogo({})
     }
   }
 
   async function handleLocalizacionChange(newLocalizacionId: string) {
     setLocalizacionId(newLocalizacionId)
     if (newLocalizacionId) {
-      await Promise.all([
-        fetchStockForLineas(Number(newLocalizacionId)),
-        fetchStockCatalogo(Number(newLocalizacionId)),
-      ])
+      setStockCatalogo({}) // limpiar stock previo; onPageLoad lo recargará
+      await fetchStockForLineas(Number(newLocalizacionId))
     } else {
       setStockPorLocalizacion({})
       setStockCatalogo({})
@@ -468,24 +447,22 @@ export default function NuevaVentaPage() {
   }
 
   /**
-   * Carga el stock de TODOS los productos del catalogo en una localizacion.
-   * El catalogo usara este mapa para mostrar unicamente las referencias con
-   * existencias (> 0) y su cantidad real en esa localizacion.
+   * Llamado por ProductCatalog cuando carga una página o cuando detecta un
+   * cambio de localización. Obtiene el stock de esos IDs y lo fusiona en stockCatalogo.
    */
-  async function fetchStockCatalogo(locId: number) {
-    if (productos.length === 0) return
+  const handleCatalogPageLoad = React.useCallback(async (ids: number[]) => {
+    const locId = Number(localizacionId)
+    if (!locId || ids.length === 0) return
     setLoadingCatalogo(true)
     try {
-      const productoIds = productos.map(p => p.id!).filter(Boolean)
-      const { data: stockMap } = await getStockMultipleProducts(productoIds, locId)
-      setStockCatalogo(stockMap || {})
+      const { data: stockMap } = await getStockMultipleProducts(ids, locId)
+      setStockCatalogo(prev => ({ ...prev, ...(stockMap || {}) }))
     } catch (err) {
       console.error('[v0] Error cargando stock del catalogo:', err)
-      setStockCatalogo({})
     } finally {
       setLoadingCatalogo(false)
     }
-  }
+  }, [localizacionId])
 
   async function fetchStockForLineas(locId: number) {
     if (lineas.length === 0) return
@@ -730,23 +707,22 @@ export default function NuevaVentaPage() {
     })
   }, [total])
 
-  // Filtro cliente del catálogo sobre la carga inicial (100 items, siempre rápido)
-  const productosFiltrados = React.useMemo(() => {
-    if (emprendimientoFiltro === "todos") return productos
-    if (emprendimientoFiltro === "tienda") return productos.filter((p) => !p.emprendimiento_id)
-    return productos.filter((p) => String(p.emprendimiento_id) === emprendimientoFiltro)
-  }, [productos, emprendimientoFiltro])
-
-  // Búsqueda server-side para el catálogo (soporta 6000+ artículos)
+  // buscarFn para el catálogo: paginado server-side, soporta 8000+ productos
   const buscarFnCatalogo = React.useCallback(
-    async (q: string, catId: string, marcaId: string): Promise<Producto[]> => {
-      const opts: Parameters<typeof buscarProductos>[1] = { limit: 80 }
+    async (q: string, catId: string, marcaId: string, page: number, pageSize: number) => {
+      const opts: Parameters<typeof buscarProductos>[1] = { page, pageSize }
       if (catId && catId !== "__todos__") opts!.categoriaId = parseInt(catId)
       if (marcaId && marcaId !== "__todos__") opts!.marcaId = parseInt(marcaId)
       if (emprendimientoFiltro === "tienda") opts!.soloTiendaPropia = true
       else if (emprendimientoFiltro !== "todos") opts!.emprendimientoId = parseInt(emprendimientoFiltro)
-      const { data } = await buscarProductos(q, opts)
-      return data || []
+      // En búsqueda (q no vacío) aumentamos el límite en vez de paginar
+      if (q.trim()) {
+        delete opts!.page
+        delete opts!.pageSize
+        opts!.limit = 80
+      }
+      const { data, total } = await buscarProductos(q, opts)
+      return { data: data || [], total }
     },
     [emprendimientoFiltro]
   )
@@ -1320,16 +1296,17 @@ export default function NuevaVentaPage() {
         <Card className="flex-1 overflow-hidden min-h-[280px] lg:min-h-0">
           <CardContent className="p-3 md:p-4 h-full">
             <ProductCatalog
-              productos={productosFiltrados}
               marcas={marcas}
               categorias={categorias}
               idsEnVenta={lineas.map((l) => l.producto_id)}
               onAdd={(producto) => addProducto(producto)}
               disabled={!almacenId}
               localizacionSeleccionada={!!localizacionId}
+              localizacionId={localizacionId ? Number(localizacionId) : null}
               stockPorLocalizacion={stockCatalogo}
               loadingStock={loadingCatalogo}
               buscarFn={buscarFnCatalogo}
+              onPageLoad={handleCatalogPageLoad}
             />
           </CardContent>
         </Card>
