@@ -24,7 +24,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts"
-import { Download, DollarSign, Package, ShoppingBag, TrendingUp } from "lucide-react"
+import { Download, DollarSign, Package, ShoppingBag, TrendingUp, ChevronLeft, ChevronRight } from "lucide-react"
 import { format, subMonths, startOfMonth, endOfMonth } from "date-fns"
 import { es } from "date-fns/locale"
 import * as XLSX from "xlsx"
@@ -75,6 +75,8 @@ export default function VentasEmprendedorPage() {
   const [hasta, setHasta] = React.useState(format(endOfMonth(new Date()), "yyyy-MM-dd"))
   const [ventas, setVentas] = React.useState<VentaEmprendedor[]>([])
   const [loading, setLoading] = React.useState(true)
+  const [page, setPage] = React.useState(1)
+  const PAGE_SIZE = 50
 
   const aplicarPeriodo = React.useCallback((p: Periodo) => {
     const hoy = new Date()
@@ -94,10 +96,12 @@ export default function VentasEmprendedorPage() {
     if (!emprendedor || !desde || !hasta) return
     setLoading(true)
     getVentasByEmprendimiento(emprendedor.emprendimientoId, desde + "T00:00:00", hasta + "T23:59:59")
-      .then((data) => { setVentas(data); setLoading(false) })
+      .then((data) => { setVentas(data); setPage(1); setLoading(false) })
   }, [emprendedor, desde, hasta])
 
   /* ─── Datos derivados ─── */
+  const totalPages = Math.max(1, Math.ceil(ventas.length / PAGE_SIZE))
+  const ventasPagina = ventas.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const totalVendido = ventas.reduce((s, v) => s + v.subtotal_neto, 0)
   const unidadesVendidas = ventas.reduce((s, v) => s + v.cantidad, 0)
   const productosDistintos = new Set(ventas.map((v) => v.producto_id)).size
@@ -285,48 +289,78 @@ export default function VentasEmprendedorPage() {
       {/* Tabla detalle */}
       <div className="rounded-2xl bg-white border border-stone-200/60 shadow-sm overflow-hidden"
         style={{ boxShadow: "0 1px 3px rgba(120,53,15,0.08)" }}>
-        <div className="px-5 pt-4 pb-3 border-b border-stone-100">
+        <div className="px-5 pt-4 pb-3 border-b border-stone-100 flex items-center justify-between">
           <h2 className="font-semibold text-stone-800 text-sm">Detalle de transacciones</h2>
+          {!loading && ventas.length > 0 && (
+            <span className="text-xs text-stone-400">
+              {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, ventas.length)} de {ventas.length}
+            </span>
+          )}
         </div>
         {loading ? (
           <div className="p-5 space-y-2">
             {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-9 w-full rounded-lg" />)}
           </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-stone-50/60">
-                <TableHead className="text-stone-500">Fecha</TableHead>
-                <TableHead className="text-stone-500">Factura</TableHead>
-                <TableHead className="text-stone-500">Producto</TableHead>
-                <TableHead className="text-right text-stone-500">Cant.</TableHead>
-                <TableHead className="text-right text-stone-500">Precio unit.</TableHead>
-                <TableHead className="text-right text-stone-500">Subtotal neto</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {ventas.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-stone-400 py-10">
-                    Sin ventas en el período seleccionado
-                  </TableCell>
-                </TableRow>
-              ) : (
-                ventas.map((v, i) => (
-                  <TableRow key={i} className="hover:bg-stone-50/60">
-                    <TableCell className="text-sm text-stone-600">
-                      {format(new Date(v.fecha_venta), "dd/MM/yyyy")}
-                    </TableCell>
-                    <TableCell className="font-mono text-sm text-stone-500">{v.numero_factura}</TableCell>
-                    <TableCell className="font-medium text-stone-700">{v.producto_nombre}</TableCell>
-                    <TableCell className="text-right text-stone-600">{v.cantidad}</TableCell>
-                    <TableCell className="text-right text-stone-600">{fmoney(v.precio_unitario)}</TableCell>
-                    <TableCell className="text-right font-semibold text-stone-800">{fmoney(v.subtotal_neto)}</TableCell>
+          <>
+            <div className="overflow-y-auto" style={{ maxHeight: 420 }}>
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-stone-50/60 sticky top-0 z-10">
+                    <TableHead className="text-stone-500">Fecha</TableHead>
+                    <TableHead className="text-stone-500">Factura</TableHead>
+                    <TableHead className="text-stone-500">Producto</TableHead>
+                    <TableHead className="text-right text-stone-500">Cant.</TableHead>
+                    <TableHead className="text-right text-stone-500">Precio unit.</TableHead>
+                    <TableHead className="text-right text-stone-500">Subtotal neto</TableHead>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                </TableHeader>
+                <TableBody>
+                  {ventas.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-stone-400 py-10">
+                        Sin ventas en el período seleccionado
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    ventasPagina.map((v, i) => (
+                      <TableRow key={i} className="hover:bg-stone-50/60">
+                        <TableCell className="text-sm text-stone-600">
+                          {format(new Date(v.fecha_venta), "dd/MM/yyyy")}
+                        </TableCell>
+                        <TableCell className="font-mono text-sm text-stone-500">{v.numero_factura}</TableCell>
+                        <TableCell className="font-medium text-stone-700">{v.producto_nombre}</TableCell>
+                        <TableCell className="text-right text-stone-600">{v.cantidad}</TableCell>
+                        <TableCell className="text-right text-stone-600">{fmoney(v.precio_unitario)}</TableCell>
+                        <TableCell className="text-right font-semibold text-stone-800">{fmoney(v.subtotal_neto)}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-3 px-5 py-3 border-t border-stone-100">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium border border-stone-200 text-stone-600 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" /> Anterior
+                </button>
+                <span className="text-xs text-stone-500">
+                  Página <span className="font-semibold text-stone-700">{page}</span> de <span className="font-semibold text-stone-700">{totalPages}</span>
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium border border-stone-200 text-stone-600 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  Siguiente <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

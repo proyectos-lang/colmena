@@ -37,7 +37,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
-import { Download, Upload, Send, FileSpreadsheet, CalendarClock } from "lucide-react"
+import { Download, Upload, Send, FileSpreadsheet, CalendarClock, ChevronLeft, ChevronRight } from "lucide-react"
 import { format, subDays, differenceInDays, parseISO } from "date-fns"
 import { es } from "date-fns/locale"
 
@@ -106,6 +106,8 @@ export default function InventarioPage() {
   const { emprendedor } = useEmprendedorAuth()
   const [stock, setStock] = React.useState<StockEmprendedor[]>([])
   const [stockLoading, setStockLoading] = React.useState(true)
+  const [stockPage, setStockPage] = React.useState(1)
+  const STOCK_PAGE_SIZE = 50
   const [almacenes, setAlmacenes] = React.useState<any[]>([])
   const [historial, setHistorial] = React.useState<IngresoPendiente[]>([])
   /* mapa producto_id → días desde última venta (null = nunca vendido) */
@@ -139,6 +141,7 @@ export default function InventarioPage() {
     ])
 
     setStock(stockData)
+    setStockPage(1)
     setAlmacenes(alms.data ?? [])
     setHistorial(hist.filter((x) => x.estado !== "rechazado"))
 
@@ -252,18 +255,25 @@ export default function InventarioPage() {
           <div className="rounded-2xl bg-white border border-stone-200/60 shadow-sm overflow-hidden"
             style={{ boxShadow: "0 1px 3px rgba(120,53,15,0.08)" }}>
 
-            {/* Leyenda */}
-            <div className="px-5 pt-4 pb-3 flex flex-wrap items-center gap-3 border-b border-stone-100">
-              <div className="flex items-center gap-1.5 text-stone-500">
-                <CalendarClock className="h-3.5 w-3.5" />
-                <span className="text-xs font-medium">Días sin venta:</span>
+            {/* Leyenda + contador */}
+            <div className="px-5 pt-4 pb-3 flex flex-wrap items-center justify-between gap-3 border-b border-stone-100">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1.5 text-stone-500">
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  <span className="text-xs font-medium">Días sin venta:</span>
+                </div>
+                {legendaItems.map((l) => (
+                  <span key={l.label} className="rounded-full px-2 py-0.5 text-xs font-medium"
+                    style={{ background: l.bg, color: l.text }}>
+                    {l.label}
+                  </span>
+                ))}
               </div>
-              {legendaItems.map((l) => (
-                <span key={l.label} className="rounded-full px-2 py-0.5 text-xs font-medium"
-                  style={{ background: l.bg, color: l.text }}>
-                  {l.label}
+              {!stockLoading && stock.length > 0 && (
+                <span className="text-xs text-stone-400 shrink-0">
+                  {(stockPage - 1) * STOCK_PAGE_SIZE + 1}–{Math.min(stockPage * STOCK_PAGE_SIZE, stock.length)} de {stock.length}
                 </span>
-              ))}
+              )}
             </div>
 
             {stockLoading ? (
@@ -271,43 +281,70 @@ export default function InventarioPage() {
                 {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-10 w-full rounded-lg" />)}
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-stone-50/60">
-                    <TableHead className="text-stone-500">Producto</TableHead>
-                    <TableHead className="text-stone-500">Código</TableHead>
-                    <TableHead className="text-right text-stone-500">Precio sugerido</TableHead>
-                    <TableHead className="text-right text-stone-500">Stock actual</TableHead>
-                    <TableHead className="text-center text-stone-500">
-                      <span className="flex items-center justify-center gap-1">
-                        <CalendarClock className="h-3.5 w-3.5" />
-                        Días sin venta
-                      </span>
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {stock.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center text-stone-400 py-10">
-                        Sin productos aprobados aún
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    stock.map((p) => (
-                      <TableRow key={p.producto_id} className="hover:bg-stone-50/60">
-                        <TableCell className="font-medium text-stone-700">{p.nombre}</TableCell>
-                        <TableCell className="font-mono text-sm text-stone-500">{p.codigo_barras}</TableCell>
-                        <TableCell className="text-right text-stone-600">{fmoney(p.precio_venta_sugerido)}</TableCell>
-                        <TableCell className="text-right font-bold text-stone-800">{p.stock_total.toLocaleString()}</TableCell>
-                        <TableCell className="text-center">
-                          <DiasSinVentaBadge dias={diasSinVenta[p.producto_id] ?? null} />
-                        </TableCell>
+              <>
+                <div className="overflow-y-auto" style={{ maxHeight: 420 }}>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-stone-50/60 sticky top-0 z-10">
+                        <TableHead className="text-stone-500">Producto</TableHead>
+                        <TableHead className="text-stone-500">Código</TableHead>
+                        <TableHead className="text-right text-stone-500">Precio sugerido</TableHead>
+                        <TableHead className="text-right text-stone-500">Stock actual</TableHead>
+                        <TableHead className="text-center text-stone-500">
+                          <span className="flex items-center justify-center gap-1">
+                            <CalendarClock className="h-3.5 w-3.5" />
+                            Días sin venta
+                          </span>
+                        </TableHead>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {stock.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center text-stone-400 py-10">
+                            Sin productos en inventario aún
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        stock
+                          .slice((stockPage - 1) * STOCK_PAGE_SIZE, stockPage * STOCK_PAGE_SIZE)
+                          .map((p) => (
+                            <TableRow key={p.producto_id} className="hover:bg-stone-50/60">
+                              <TableCell className="font-medium text-stone-700">{p.nombre}</TableCell>
+                              <TableCell className="font-mono text-sm text-stone-500">{p.codigo_barras}</TableCell>
+                              <TableCell className="text-right text-stone-600">{fmoney(p.precio_venta_sugerido)}</TableCell>
+                              <TableCell className="text-right font-bold text-stone-800">{p.stock_total.toLocaleString()}</TableCell>
+                              <TableCell className="text-center">
+                                <DiasSinVentaBadge dias={diasSinVenta[p.producto_id] ?? null} />
+                              </TableCell>
+                            </TableRow>
+                          ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+                {Math.ceil(stock.length / STOCK_PAGE_SIZE) > 1 && (
+                  <div className="flex items-center justify-center gap-3 px-5 py-3 border-t border-stone-100">
+                    <button
+                      onClick={() => setStockPage((p) => Math.max(1, p - 1))}
+                      disabled={stockPage === 1}
+                      className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium border border-stone-200 text-stone-600 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" /> Anterior
+                    </button>
+                    <span className="text-xs text-stone-500">
+                      Página <span className="font-semibold text-stone-700">{stockPage}</span> de <span className="font-semibold text-stone-700">{Math.ceil(stock.length / STOCK_PAGE_SIZE)}</span>
+                    </span>
+                    <button
+                      onClick={() => setStockPage((p) => Math.min(Math.ceil(stock.length / STOCK_PAGE_SIZE), p + 1))}
+                      disabled={stockPage === Math.ceil(stock.length / STOCK_PAGE_SIZE)}
+                      className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium border border-stone-200 text-stone-600 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                      Siguiente <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </TabsContent>
