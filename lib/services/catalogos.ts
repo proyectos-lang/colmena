@@ -90,24 +90,55 @@ export interface Proveedor {
 
 // ==================== PRODUCTOS ====================
 
-export async function getProductos(): Promise<{ data: Producto[]; error: string | null }> {
+export interface GetProductosOpts {
+  /** Página 1-indexada. Default: sin paginación (compatibilidad). */
+  page?: number
+  /** Tamaño de página. Default 50. */
+  pageSize?: number
+  /** Búsqueda por nombre o código de barras (ilike). */
+  search?: string
+  marcaId?: number | null
+  categoriaId?: number | null
+}
+
+export async function getProductos(
+  opts?: GetProductosOpts
+): Promise<{ data: Producto[]; total: number; error: string | null }> {
   if (!isSupabaseConfigured()) {
     const saved = localStorage.getItem('productos')
-    return { data: saved ? JSON.parse(saved) : [], error: null }
+    const all: Producto[] = saved ? JSON.parse(saved) : []
+    return { data: all, total: all.length, error: null }
   }
 
   const supabase = createClient()
-  if (!supabase) return { data: [], error: 'Cliente no disponible' }
+  if (!supabase) return { data: [], total: 0, error: 'Cliente no disponible' }
+
+  function buildQuery(selectStr: string) {
+    let q = supabase!
+      .from('productos')
+      .select(selectStr, { count: 'exact' })
+      .order('id', { ascending: true })
+
+    if (opts?.search?.trim()) {
+      const s = opts.search.trim()
+      q = q.or(`nombre.ilike.%${s}%,codigo_barras.ilike.%${s}%`)
+    }
+    if (opts?.marcaId != null) q = q.eq('marca_id', opts.marcaId)
+    if (opts?.categoriaId != null) q = q.eq('categoria_id', opts.categoriaId)
+
+    if (opts?.page != null) {
+      const size = opts.pageSize ?? 50
+      const pg = Math.max(1, opts.page)
+      q = (q as any).range((pg - 1) * size, pg * size - 1)
+    }
+    return q
+  }
 
   try {
     // Intentamos primero con el join a subcategorias (post-migracion 015).
-    // Si la columna o la tabla no existen aun, caemos al select clasico
-    // sin romper la pagina. Asi el feature de subcategorias se "enciende"
-    // automaticamente cuando el script 015 se ejecuta.
-    let result = await supabase
-      .from('productos')
-      .select('*, marcas(nombre), categorias(nombre), subcategorias(nombre), emprendimientos(nombre)')
-      .order('id', { ascending: true })
+    let result = await buildQuery(
+      '*, marcas(nombre), categorias(nombre), subcategorias(nombre), emprendimientos(nombre)'
+    )
 
     if (
       result.error &&
@@ -115,18 +146,14 @@ export async function getProductos(): Promise<{ data: Producto[]; error: string 
         result.error.message
       )
     ) {
-      console.log(
-        '[v0][catalogos] subcategorias no disponibles, fallback sin join'
+      console.log('[v0][catalogos] subcategorias no disponibles, fallback sin join')
+      result = await buildQuery(
+        '*, marcas(nombre), categorias(nombre), emprendimientos(nombre)'
       )
-      result = await supabase
-        .from('productos')
-        .select('*, marcas(nombre), categorias(nombre), emprendimientos(nombre)')
-        .order('id', { ascending: true })
     }
 
-    if (result.error) return { data: [], error: result.error.message }
+    if (result.error) return { data: [], total: 0, error: result.error.message }
 
-    // Flatten join data
     const productos = (result.data || []).map((p: any) => ({
       ...p,
       marca_nombre: p.marcas?.nombre || null,
@@ -139,10 +166,10 @@ export async function getProductos(): Promise<{ data: Producto[]; error: string 
       emprendimientos: undefined,
     }))
 
-    return { data: productos, error: null }
+    return { data: productos, total: result.count ?? 0, error: null }
   } catch (err) {
     console.error('[Supabase] Error obteniendo productos:', err)
-    return { data: [], error: 'Error de conexion' }
+    return { data: [], total: 0, error: 'Error de conexion' }
   }
 }
 

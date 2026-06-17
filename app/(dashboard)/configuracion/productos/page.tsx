@@ -18,6 +18,8 @@ import {
   Settings2,
   FileSpreadsheet,
   Download,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -76,6 +78,7 @@ export default function ProductosConfigPage() {
   const { ready, razonSocialId } = useTenant()
   
   const [productos, setProductos] = useState<Producto[]>([])
+  const [totalProductos, setTotalProductos] = useState(0)
   const [marcas, setMarcas] = useState<Marca[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [emprendimientos, setEmprendimientos] = useState<Emprendimiento[]>([])
@@ -90,11 +93,16 @@ export default function ProductosConfigPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProducto, setEditingProducto] = useState<Producto | null>(null)
   const [saving, setSaving] = useState(false)
-  
+
+  // Paginación
+  const PAGE_SIZE = 50
+  const [currentPage, setCurrentPage] = useState(1)
+
   // Filter state
   const [filterMarca, setFilterMarca] = useState<string>("all")
   const [filterCategoria, setFilterCategoria] = useState<string>("all")
   const [searchTerm, setSearchTerm] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
   
   // Quick-create modals state
   const [marcaDialogOpen, setMarcaDialogOpen] = useState(false)
@@ -201,43 +209,46 @@ export default function ProductosConfigPage() {
   const [calcCosto, setCalcCosto] = useState<number>(0)
   const [calcMargen, setCalcMargen] = useState<number>(30) // Default 30%
 
+  // Debounce del buscador: 350ms después de que el usuario deje de escribir
   useEffect(() => {
-    if (!ready) {
-      console.log('[v0][Productos] esperando sesion...')
-      return
-    }
-    if (razonSocialId == null) {
-      console.log('[v0][Productos] usuario sin razon_social_id')
-      setProductos([])
-      setLoading(false)
-      return
-    }
-    loadAll()
+    const t = setTimeout(() => setDebouncedSearch(searchTerm), 350)
+    return () => clearTimeout(t)
+  }, [searchTerm])
+
+  // Resetear a página 1 cuando cambien los filtros o la búsqueda
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [debouncedSearch, filterMarca, filterCategoria])
+
+  // Cargar metadatos una sola vez al montar
+  useEffect(() => {
+    if (!ready) return
+    if (razonSocialId == null) { setLoading(false); return }
+    loadMetadatos()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, razonSocialId])
 
-  async function loadAll() {
+  // Recargar productos cuando cambie la página o los filtros (después de debounce)
+  useEffect(() => {
+    if (!ready || razonSocialId == null) return
+    loadProductos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, razonSocialId, currentPage, debouncedSearch, filterMarca, filterCategoria])
+
+  async function loadMetadatos() {
     setLoading(true)
     try {
-      const [prodRes, marcaRes, catRes, subRes, empsData] = await Promise.all([
-        getProductos(),
+      const [marcaRes, catRes, subRes, empsData] = await Promise.all([
         getMarcas(),
         getCategorias(),
         getSubcategorias(),
         getEmprendimientos(razonSocialId!),
       ])
-      if (prodRes.error) {
-        console.log('[v0][Productos] error:', prodRes.error)
-        toast({ title: "No se pudieron cargar los datos", description: prodRes.error, variant: "destructive" })
-      } else {
-        setProductos(prodRes.data)
-      }
       if (!marcaRes.error) setMarcas(marcaRes.data)
       if (!catRes.error) setCategorias(catRes.data)
       if (!subRes.error) setSubcategorias(subRes.data)
       setEmprendimientos(empsData)
     } catch (err: any) {
-      console.log('[v0][Productos] excepcion:', err)
       toast({ title: "No se pudieron cargar los datos", description: err?.message || "Error de conexion", variant: "destructive" })
     } finally {
       setLoading(false)
@@ -250,11 +261,26 @@ export default function ProductosConfigPage() {
   }
 
   async function loadProductos() {
-    const { data, error } = await getProductos()
-    if (error) {
-      toast({ title: "Error", description: error, variant: "destructive" })
-    } else {
-      setProductos(data)
+    setLoading(true)
+    try {
+      const opts = {
+        page: currentPage,
+        pageSize: PAGE_SIZE,
+        search: debouncedSearch || undefined,
+        marcaId: filterMarca !== "all" ? parseInt(filterMarca) : undefined,
+        categoriaId: filterCategoria !== "all" ? parseInt(filterCategoria) : undefined,
+      }
+      const { data, total, error } = await getProductos(opts)
+      if (error) {
+        toast({ title: "Error", description: error, variant: "destructive" })
+      } else {
+        setProductos(data)
+        setTotalProductos(total)
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err?.message || "Error de conexion", variant: "destructive" })
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -276,23 +302,7 @@ export default function ProductosConfigPage() {
     return subcategorias.filter((s) => s.categoria_id === formData.categoria_id)
   }, [subcategorias, formData.categoria_id])
 
-  // Filtered productos
-  const filteredProductos = useMemo(() => {
-    return productos.filter(p => {
-      const matchMarca = filterMarca === "all" || p.marca_id?.toString() === filterMarca
-      const matchCat = filterCategoria === "all" || p.categoria_id?.toString() === filterCategoria
-      const search = searchTerm.toLowerCase().trim()
-      // Blindamos contra `nombre`/`codigo_barras` nulos o no-string en BD:
-      // llamar .toLowerCase() sobre null/undefined lanzaba una excepcion de
-      // cliente al teclear en el buscador. Coaccionamos a string seguro.
-      const nombre = (p.nombre ?? "").toString().toLowerCase()
-      const codigoBarras = (p.codigo_barras ?? "").toString().toLowerCase()
-      const matchSearch = !search ||
-        nombre.includes(search) ||
-        codigoBarras.includes(search)
-      return matchMarca && matchCat && matchSearch
-    })
-  }, [productos, filterMarca, filterCategoria, searchTerm])
+  const totalPages = Math.ceil(totalProductos / PAGE_SIZE)
 
   async function handleCreateMarca() {
     if (!newMarcaName.trim()) {
@@ -565,7 +575,8 @@ export default function ProductosConfigPage() {
             Productos
           </CardTitle>
           <CardDescription className="text-xs md:text-sm">
-            {filteredProductos.length} de {productos.length} producto{productos.length !== 1 ? "s" : ""}
+            {totalProductos.toLocaleString()} producto{totalProductos !== 1 ? "s" : ""}
+            {(debouncedSearch || filterMarca !== "all" || filterCategoria !== "all") && " encontrados"}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-4 md:p-6 pt-0">
@@ -573,21 +584,25 @@ export default function ProductosConfigPage() {
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-stone-400" />
             </div>
-          ) : filteredProductos.length === 0 ? (
+          ) : productos.length === 0 ? (
             <div className="text-center py-8 text-stone-500">
               <Package className="h-10 w-10 md:h-12 md:w-12 mx-auto mb-2 opacity-50" />
               <p className="text-sm md:text-base">
-                {productos.length === 0 ? "No hay productos registrados" : "No se encontraron productos con estos filtros"}
+                {totalProductos === 0 && !debouncedSearch && filterMarca === "all" && filterCategoria === "all"
+                  ? "No hay productos registrados"
+                  : "No se encontraron productos con estos filtros"}
               </p>
               <p className="text-xs md:text-sm">
-                {productos.length === 0 ? "Crea tu primer producto" : "Prueba ajustando los filtros"}
+                {totalProductos === 0 && !debouncedSearch && filterMarca === "all" && filterCategoria === "all"
+                  ? "Crea tu primer producto"
+                  : "Prueba ajustando los filtros"}
               </p>
             </div>
           ) : (
             <>
               {/* Mobile Card View */}
               <div className="block md:hidden space-y-3">
-                {filteredProductos.map((producto) => (
+                {productos.map((producto) => (
                   <div key={producto.id} className="border border-stone-200 rounded-xl p-3 bg-white flex items-center gap-3">
                     {producto.foto_url ? (
                       <img src={producto.foto_url} alt={producto.nombre} className="h-14 w-14 rounded-lg object-cover shrink-0" />
@@ -652,7 +667,7 @@ export default function ProductosConfigPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredProductos.map((producto) => (
+                    {productos.map((producto) => (
                       <TableRow key={producto.id}>
                         <TableCell>
                           {producto.foto_url ? (
@@ -719,6 +734,35 @@ export default function ProductosConfigPage() {
                   </TableBody>
                 </Table>
               </div>
+
+              {/* Paginación */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t border-stone-200">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    disabled={currentPage === 1 || loading}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Anterior
+                  </Button>
+                  <span className="text-xs text-stone-500">
+                    Página {currentPage} de {totalPages} · mostrando {((currentPage - 1) * PAGE_SIZE) + 1}–{Math.min(currentPage * PAGE_SIZE, totalProductos)} de {totalProductos.toLocaleString()}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    disabled={currentPage >= totalPages || loading}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Siguiente
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
             </>
           )}
         </CardContent>
