@@ -192,14 +192,15 @@ export async function getValoracionInventarioExtendida(): Promise<{ data: Produc
   if (!supabase) return { data: [], error: 'Cliente no disponible' }
 
   try {
-    // Fetch ALL products paginated (Supabase default cap is 1000 rows per query)
     const PAGE = 1000
+
+    // 1. Fetch ALL products (metadata only — stock comes from the view)
     const allProductos: any[] = []
     let prodFrom = 0
     while (true) {
       const { data: batch, error: prodError } = await supabase
         .from('productos')
-        .select('id, nombre, codigo_barras, stock_total, costo_promedio, precio_venta_sugerido, emprendimiento_id, emprendimientos(nombre)')
+        .select('id, nombre, codigo_barras, costo_promedio, precio_venta_sugerido, emprendimiento_id, emprendimientos(nombre)')
         .order('nombre', { ascending: true })
         .range(prodFrom, prodFrom + PAGE - 1)
       if (prodError) return { data: [], error: prodError.message }
@@ -208,81 +209,105 @@ export async function getValoracionInventarioExtendida(): Promise<{ data: Produc
       if (batch.length < PAGE) break
       prodFrom += PAGE
     }
-    const productos = allProductos
 
-    // Fetch ALL transactions paginated
-    const allTransacciones: any[] = []
-    let transFrom = 0
+    // 2. Fetch stock from vista_stock_por_localizacion (authoritative source)
+    const allStock: any[] = []
+    let stockFrom = 0
     while (true) {
-      const { data: batch, error: transError } = await supabase
-        .from('transacciones_inventario')
-        .select('producto_id, almacen_id, cantidad, tipo_movimiento, fecha, almacenes(nombre)')
-        .range(transFrom, transFrom + PAGE - 1)
-      if (transError) return { data: [], error: transError.message }
+      const { data: batch, error: stockError } = await supabase
+        .from('vista_stock_por_localizacion')
+        .select('producto_id, almacen_id, stock_actual')
+        .range(stockFrom, stockFrom + PAGE - 1)
+      if (stockError) return { data: [], error: stockError.message }
       if (!batch || batch.length === 0) break
-      allTransacciones.push(...batch)
+      allStock.push(...batch)
       if (batch.length < PAGE) break
-      transFrom += PAGE
+      stockFrom += PAGE
     }
-    const transacciones = allTransacciones
+
+    // 3. Fetch almacen names for the breakdown
+    const { data: almacenesData } = await supabase.from('almacenes').select('id, nombre')
+    const almacenNombreMap: Record<number, string> = {}
+    ;(almacenesData || []).forEach((a: { id: number; nombre: string }) => { almacenNombreMap[a.id] = a.nombre })
+
+    // 4. Build stock maps from the view (sum stock_actual per product and per almacen)
+    const stockTotalMap: Record<number, number> = {}
+    const stockAlmacenMap: Record<number, Record<number, number>> = {}
+    for (const row of allStock) {
+      const pid = row.producto_id
+      const aid = row.almacen_id
+      const qty = row.stock_actual ?? 0
+      stockTotalMap[pid] = (stockTotalMap[pid] ?? 0) + qty
+      if (!stockAlmacenMap[pid]) stockAlmacenMap[pid] = {}
+      stockAlmacenMap[pid][aid] = (stockAlmacenMap[pid][aid] ?? 0) + qty
+    }
+
+    // 5. Fetch only sales transactions for rotation analysis
+    const allVentas: any[] = []
+    let ventasFrom = 0
+    while (true) {
+      const { data: batch, error: ventasError } = await supabase
+        .from('transacciones_inventario')
+        .select('producto_id, tipo_movimiento, fecha')
+        .eq('tipo_movimiento', 'Salida Venta')
+        .range(ventasFrom, ventasFrom + PAGE - 1)
+      if (ventasError) break // rotation is non-critical — continue without it
+      if (!batch || batch.length === 0) break
+      allVentas.push(...batch)
+      if (batch.length < PAGE) break
+      ventasFrom += PAGE
+    }
+
+    // Build last-sale map
+    const ultimaVentaMap: Record<number, string> = {}
+    for (const t of allVentas) {
+      const pid = t.producto_id
+      if (!ultimaVentaMap[pid] || t.fecha > ultimaVentaMap[pid]) {
+        ultimaVentaMap[pid] = t.fecha
+      }
+    }
 
     const now = new Date()
 
-    // Process valoracion
-    const valoracion = (productos || []).map(p => {
-      // Group transactions by almacen
-      const stockByAlmacen: Record<number, { nombre: string; stock: number }> = {}
-      
-      const transaccionesProducto = (transacciones || []).filter(t => t.producto_id === p.id)
-      
-      transaccionesProducto.forEach(t => {
-          if (!stockByAlmacen[t.almacen_id]) {
-            stockByAlmacen[t.almacen_id] = {
-              nombre: (t.almacenes as unknown as { nombre: string })?.nombre || `Almacen ${t.almacen_id}`,
-              stock: 0
-            }
+    const valoracion = allProductos.map(p => {
+      const stockTotal = stockTotalMap[p.id] ?? 0
+      const almacenEntries = stockAlmacenMap[p.id] ?? {}
+
+      const stockPorAlmacen = Object.entries(almacenEntries)
+        .filter(([, qty]) => (qty as number) !== 0)
+        .map(([almacenId, qty]) => {
+          const stock = qty as number
+          const aid = parseInt(almacenId)
+          return {
+            almacen_id: aid,
+            almacen_nombre: almacenNombreMap[aid] ?? `Almacén ${aid}`,
+            stock,
+            valor_costo: stock * (p.costo_promedio || 0),
+            valor_comercial: stock * (p.precio_venta_sugerido || 0),
           }
-          stockByAlmacen[t.almacen_id].stock += t.cantidad || 0
         })
 
-      const stockPorAlmacen = Object.entries(stockByAlmacen)
-        .filter(([_, v]) => v.stock !== 0)
-        .map(([almacenId, v]) => ({
-          almacen_id: parseInt(almacenId),
-          almacen_nombre: v.nombre,
-          stock: v.stock,
-          valor_costo: v.stock * (p.costo_promedio || 0),
-          valor_comercial: v.stock * (p.precio_venta_sugerido || 0)
-        }))
-
-      // Find last sale for this product
-      const ventas = transaccionesProducto
-        .filter(t => t.tipo_movimiento === 'Salida Venta' && t.fecha)
-        .sort((a, b) => new Date(b.fecha!).getTime() - new Date(a.fecha!).getTime())
-      
-      const ultimaVenta = ventas.length > 0 ? ventas[0].fecha! : null
+      const ultimaVenta = ultimaVentaMap[p.id] ?? null
       let diasSinVenta: number | null = null
-      
       if (ultimaVenta) {
-        const fechaUltimaVenta = new Date(ultimaVenta)
-        diasSinVenta = Math.floor((now.getTime() - fechaUltimaVenta.getTime()) / (1000 * 60 * 60 * 24))
+        diasSinVenta = Math.floor((now.getTime() - new Date(ultimaVenta).getTime()) / (1000 * 60 * 60 * 24))
       }
 
       return {
         id: p.id,
         nombre: p.nombre,
         codigo_barras: p.codigo_barras || '',
-        stock_total: p.stock_total || 0,
+        stock_total: stockTotal,
         costo_promedio: p.costo_promedio || 0,
         precio_venta: p.precio_venta_sugerido || 0,
-        valor_costo: (p.stock_total || 0) * (p.costo_promedio || 0),
-        valor_comercial: (p.stock_total || 0) * (p.precio_venta_sugerido || 0),
-        margen_potencial: ((p.stock_total || 0) * (p.precio_venta_sugerido || 0)) - ((p.stock_total || 0) * (p.costo_promedio || 0)),
+        valor_costo: stockTotal * (p.costo_promedio || 0),
+        valor_comercial: stockTotal * (p.precio_venta_sugerido || 0),
+        margen_potencial: stockTotal * ((p.precio_venta_sugerido || 0) - (p.costo_promedio || 0)),
         dias_sin_venta: diasSinVenta,
         ultima_venta: ultimaVenta,
-        emprendimiento_id: (p as any).emprendimiento_id ?? null,
-        emprendimiento_nombre: (p as any).emprendimientos?.nombre ?? null,
-        stock_por_almacen: stockPorAlmacen
+        emprendimiento_id: p.emprendimiento_id ?? null,
+        emprendimiento_nombre: p.emprendimientos?.nombre ?? null,
+        stock_por_almacen: stockPorAlmacen,
       }
     })
 
@@ -347,8 +372,8 @@ export async function getValoracionPorAlmacen(almacenId: number): Promise<{ data
           valor_comercial: stockAlmacen * (p.precio_venta_sugerido || 0)
         }]
       }
-    }).filter((p): p is ProductoValoracionExtendida => p !== null)
-    
+    }).filter(Boolean) as ProductoValoracionExtendida[]
+
     return { data: valoracion, error: null }
   }
 
@@ -356,8 +381,9 @@ export async function getValoracionPorAlmacen(almacenId: number): Promise<{ data
   if (!supabase) return { data: [], error: 'Cliente no disponible' }
 
   try {
-    // Fetch ALL products paginated
     const PAGE = 1000
+
+    // 1. Fetch ALL products (metadata only)
     const allProductos: any[] = []
     let prodFrom = 0
     while (true) {
@@ -372,78 +398,93 @@ export async function getValoracionPorAlmacen(almacenId: number): Promise<{ data
       if (batch.length < PAGE) break
       prodFrom += PAGE
     }
-    const productos = allProductos
 
-    // Fetch ALL transactions for this almacen paginated
-    const allTransacciones: any[] = []
-    let transFrom = 0
+    // 2. Fetch stock for this almacen from vista_stock_por_localizacion
+    const allStock: any[] = []
+    let stockFrom = 0
     while (true) {
-      const { data: batch, error: transError } = await supabase
-        .from('transacciones_inventario')
-        .select('producto_id, cantidad, tipo_movimiento, fecha')
+      const { data: batch, error: stockError } = await supabase
+        .from('vista_stock_por_localizacion')
+        .select('producto_id, almacen_id, stock_actual')
         .eq('almacen_id', almacenId)
-        .range(transFrom, transFrom + PAGE - 1)
-      if (transError) return { data: [], error: transError.message }
+        .range(stockFrom, stockFrom + PAGE - 1)
+      if (stockError) return { data: [], error: stockError.message }
       if (!batch || batch.length === 0) break
-      allTransacciones.push(...batch)
+      allStock.push(...batch)
       if (batch.length < PAGE) break
-      transFrom += PAGE
+      stockFrom += PAGE
     }
-    const transacciones = allTransacciones
 
-    // Get almacen name
-    const { data: almacenData } = await supabase
-      .from('almacenes')
-      .select('nombre')
-      .eq('id', almacenId)
-      .single()
+    // 3. Get almacen name
+    const { data: almacenData } = await supabase.from('almacenes').select('nombre').eq('id', almacenId).single()
+    const almacenNombre = almacenData?.nombre || `Almacén ${almacenId}`
+
+    // 4. Build stock map: producto_id -> total stock_actual for this almacen
+    const stockMap: Record<number, number> = {}
+    for (const row of allStock) {
+      stockMap[row.producto_id] = (stockMap[row.producto_id] ?? 0) + (row.stock_actual ?? 0)
+    }
+
+    // 5. Fetch only sales transactions for rotation analysis
+    const allVentas: any[] = []
+    let ventasFrom = 0
+    while (true) {
+      const { data: batch, error: ventasError } = await supabase
+        .from('transacciones_inventario')
+        .select('producto_id, tipo_movimiento, fecha')
+        .eq('tipo_movimiento', 'Salida Venta')
+        .range(ventasFrom, ventasFrom + PAGE - 1)
+      if (ventasError) break
+      if (!batch || batch.length === 0) break
+      allVentas.push(...batch)
+      if (batch.length < PAGE) break
+      ventasFrom += PAGE
+    }
+
+    const ultimaVentaMap: Record<number, string> = {}
+    for (const t of allVentas) {
+      if (!ultimaVentaMap[t.producto_id] || t.fecha > ultimaVentaMap[t.producto_id]) {
+        ultimaVentaMap[t.producto_id] = t.fecha
+      }
+    }
 
     const now = new Date()
 
-    // Process valoracion
-    const valoracion = (productos || []).map(p => {
-      // Calculate stock for this almacen
-      const transaccionesProducto = (transacciones || []).filter(t => t.producto_id === p.id)
-      const stockAlmacen = transaccionesProducto.reduce((sum, t) => sum + (t.cantidad || 0), 0)
-      
-      if (stockAlmacen === 0) return null
-      
-      // Find last sale for this product
-      const ventas = transaccionesProducto
-        .filter(t => t.tipo_movimiento === 'Salida Venta' && t.fecha)
-        .sort((a, b) => new Date(b.fecha!).getTime() - new Date(a.fecha!).getTime())
-      
-      const ultimaVenta = ventas.length > 0 ? ventas[0].fecha! : null
-      let diasSinVenta: number | null = null
-      
-      if (ultimaVenta) {
-        const fechaUltimaVenta = new Date(ultimaVenta)
-        diasSinVenta = Math.floor((now.getTime() - fechaUltimaVenta.getTime()) / (1000 * 60 * 60 * 24))
-      }
+    const valoracion = allProductos
+      .map(p => {
+        const stockAlmacen = stockMap[p.id] ?? 0
+        if (stockAlmacen === 0) return null
 
-      return {
-        id: p.id,
-        nombre: p.nombre,
-        codigo_barras: p.codigo_barras || '',
-        stock_total: stockAlmacen,
-        costo_promedio: p.costo_promedio || 0,
-        precio_venta: p.precio_venta_sugerido || 0,
-        valor_costo: stockAlmacen * (p.costo_promedio || 0),
-        valor_comercial: stockAlmacen * (p.precio_venta_sugerido || 0),
-        margen_potencial: (stockAlmacen * (p.precio_venta_sugerido || 0)) - (stockAlmacen * (p.costo_promedio || 0)),
-        dias_sin_venta: diasSinVenta,
-        ultima_venta: ultimaVenta,
-        emprendimiento_id: (p as any).emprendimiento_id ?? null,
-        emprendimiento_nombre: (p as any).emprendimientos?.nombre ?? null,
-        stock_por_almacen: [{
-          almacen_id: almacenId,
-          almacen_nombre: almacenData?.nombre || `Almacen ${almacenId}`,
-          stock: stockAlmacen,
+        const ultimaVenta = ultimaVentaMap[p.id] ?? null
+        let diasSinVenta: number | null = null
+        if (ultimaVenta) {
+          diasSinVenta = Math.floor((now.getTime() - new Date(ultimaVenta).getTime()) / (1000 * 60 * 60 * 24))
+        }
+
+        return {
+          id: p.id,
+          nombre: p.nombre,
+          codigo_barras: p.codigo_barras || '',
+          stock_total: stockAlmacen,
+          costo_promedio: p.costo_promedio || 0,
+          precio_venta: p.precio_venta_sugerido || 0,
           valor_costo: stockAlmacen * (p.costo_promedio || 0),
-          valor_comercial: stockAlmacen * (p.precio_venta_sugerido || 0)
-        }]
-      }
-    }).filter((p): p is ProductoValoracionExtendida => p !== null)
+          valor_comercial: stockAlmacen * (p.precio_venta_sugerido || 0),
+          margen_potencial: stockAlmacen * ((p.precio_venta_sugerido || 0) - (p.costo_promedio || 0)),
+          dias_sin_venta: diasSinVenta,
+          ultima_venta: ultimaVenta,
+          emprendimiento_id: p.emprendimiento_id ?? null,
+          emprendimiento_nombre: p.emprendimientos?.nombre ?? null,
+          stock_por_almacen: [{
+            almacen_id: almacenId,
+            almacen_nombre: almacenNombre,
+            stock: stockAlmacen,
+            valor_costo: stockAlmacen * (p.costo_promedio || 0),
+            valor_comercial: stockAlmacen * (p.precio_venta_sugerido || 0),
+          }],
+        }
+      })
+      .filter(Boolean) as ProductoValoracionExtendida[]
 
     return { data: valoracion, error: null }
   } catch (err) {
