@@ -1212,22 +1212,22 @@ export default function NuevaVentaPage() {
             </div>
           </div>
           
-          {/* Row 2: Warehouse + Emprendimiento Selection */}
+          {/* Row 2: Almacén + Localización + Emprendimiento en una sola línea */}
           <Card className="bg-amber-50/50 border-amber-200">
-            <CardContent className="p-3 md:p-4 space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs uppercase tracking-wide text-amber-800 mb-1.5 flex items-center gap-1.5">
-                    <Warehouse className="h-3.5 w-3.5" />
-                    Almacen de Despacho
-                  </Label>
+            <CardContent className="p-2 md:p-2.5">
+              <div className={`grid gap-2 ${emprendimientos.length > 0 ? "grid-cols-3" : "grid-cols-2"}`}>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-medium text-amber-700 mb-1 flex items-center gap-1 truncate">
+                    <Warehouse className="h-3 w-3 shrink-0" />
+                    Almacén
+                  </p>
                   <Select value={almacenId} onValueChange={handleAlmacenChange}>
-                    <SelectTrigger className="h-10 bg-white border-amber-200">
-                      <SelectValue placeholder="Seleccionar almacen..." />
+                    <SelectTrigger className="h-8 text-xs bg-white border-amber-200 px-2">
+                      <SelectValue placeholder="Seleccionar..." />
                     </SelectTrigger>
                     <SelectContent>
                       {almacenes.map(a => (
-                        <SelectItem key={a.id} value={a.id!.toString()}>
+                        <SelectItem key={a.id} value={a.id!.toString()} className="text-xs">
                           {a.nombre}
                         </SelectItem>
                       ))}
@@ -1235,57 +1235,53 @@ export default function NuevaVentaPage() {
                   </Select>
                 </div>
 
-                <div>
-                  <Label className="text-xs uppercase tracking-wide text-amber-800 mb-1.5 flex items-center gap-1.5">
-                    <MapPin className="h-3.5 w-3.5" />
-                    Localizacion
-                  </Label>
-                  <Select
-                    value={localizacionId}
-                    onValueChange={handleLocalizacionChange}
-                    disabled={!almacenId}
-                  >
-                    <SelectTrigger className="h-10 bg-white border-amber-200">
-                      <SelectValue placeholder={almacenId ? "Seleccionar..." : "Seleccione almacen"} />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-medium text-amber-700 mb-1 flex items-center gap-1 truncate">
+                    <MapPin className="h-3 w-3 shrink-0" />
+                    Localización
+                  </p>
+                  <Select value={localizacionId} onValueChange={handleLocalizacionChange} disabled={!almacenId}>
+                    <SelectTrigger className="h-8 text-xs bg-white border-amber-200 px-2">
+                      <SelectValue placeholder={almacenId ? "Seleccionar..." : "Primero almacén"} />
                     </SelectTrigger>
                     <SelectContent>
                       {localizacionesFiltradas.map(l => (
-                        <SelectItem key={l.id} value={l.id!.toString()}>
+                        <SelectItem key={l.id} value={l.id!.toString()} className="text-xs">
                           {l.nombre}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
+
+                {emprendimientos.length > 0 && (
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-medium text-amber-700 mb-1 flex items-center gap-1 truncate">
+                      <Store className="h-3 w-3 shrink-0" />
+                      Emprendimiento
+                    </p>
+                    <Select value={emprendimientoFiltro} onValueChange={setEmprendimientoFiltro}>
+                      <SelectTrigger className="h-8 text-xs bg-white border-amber-200 px-2">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos" className="text-xs">Todos</SelectItem>
+                        <SelectItem value="tienda" className="text-xs">Tienda propia</SelectItem>
+                        {emprendimientos.map((e) => (
+                          <SelectItem key={e.id} value={String(e.id)} className="text-xs">
+                            {e.nombre}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
 
-              {emprendimientos.length > 0 && (
-                <div>
-                  <Label className="text-xs uppercase tracking-wide text-amber-800 mb-1.5 flex items-center gap-1.5">
-                    <Store className="h-3.5 w-3.5" />
-                    Emprendimiento (catálogo)
-                  </Label>
-                  <Select value={emprendimientoFiltro} onValueChange={setEmprendimientoFiltro}>
-                    <SelectTrigger className="h-10 bg-white border-amber-200">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Todos los productos</SelectItem>
-                      <SelectItem value="tienda">Tienda propia</SelectItem>
-                      {emprendimientos.map((e) => (
-                        <SelectItem key={e.id} value={String(e.id)}>
-                          {e.nombre}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
               {!almacenId && (
-                <p className="text-xs text-amber-700 flex items-center gap-1.5">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  Seleccione un almacen para poder agregar productos
+                <p className="text-[10px] text-amber-700 flex items-center gap-1 mt-1.5">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                  Seleccione un almacén para agregar productos
                 </p>
               )}
             </CardContent>
