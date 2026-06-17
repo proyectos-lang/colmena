@@ -54,6 +54,8 @@ export default function MovimientosManualesPage() {
   // ── Masivo Excel ────────────────────────────────────────────
   const [tipoMasivo, setTipoMasivo] = React.useState<TipoMovimiento>("ingreso")
   const [almacenMasivo, setAlmacenMasivo] = React.useState("")
+  const [localizacionMasivo, setLocalizacionMasivo] = React.useState("")
+  const [localizacionesMasivo, setLocalizacionesMasivo] = React.useState<Localizacion[]>([])
   const [filasExcel, setFilasExcel] = React.useState<FilaExcel[]>([])
   const [erroresExcel, setErroresExcel] = React.useState<string[]>([])
   const [procesando, setProcesando] = React.useState(false)
@@ -78,8 +80,10 @@ export default function MovimientosManualesPage() {
       setAlmacenMasivo(almId)
       const filtradas = locRes.data.filter(l => l.almacen_id === almRes.data[0].id)
       setLocalizacionesFiltradas(filtradas)
+      setLocalizacionesMasivo(filtradas)
       if (filtradas.length === 1) {
         setFormData(prev => ({ ...prev, almacen_id: almId, localizacion_id: filtradas[0].id!.toString() }))
+        setLocalizacionMasivo(filtradas[0].id!.toString())
       }
     }
     setLoading(false)
@@ -91,6 +95,16 @@ export default function MovimientosManualesPage() {
     setLocalizacionesFiltradas(filtradas)
     if (filtradas.length === 1) {
       setFormData(prev => ({ ...prev, almacen_id: value, localizacion_id: filtradas[0].id!.toString() }))
+    }
+  }
+
+  function handleAlmacenMasivoChange(value: string) {
+    setAlmacenMasivo(value)
+    setLocalizacionMasivo("")
+    const filtradas = localizaciones.filter(l => l.almacen_id === parseInt(value))
+    setLocalizacionesMasivo(filtradas)
+    if (filtradas.length === 1) {
+      setLocalizacionMasivo(filtradas[0].id!.toString())
     }
   }
 
@@ -173,12 +187,14 @@ export default function MovimientosManualesPage() {
 
   async function procesarMasivo() {
     if (!almacenMasivo) { toast({ title: "Error", description: "Seleccione un almacén", variant: "destructive" }); return }
+    if (!localizacionMasivo) { toast({ title: "Error", description: "Seleccione una localización", variant: "destructive" }); return }
     if (filasExcel.length === 0) { toast({ title: "Error", description: "Cargue un archivo primero", variant: "destructive" }); return }
     setProcesando(true)
     const resultado = await procesarIngresosMasivoAdmin(
       filasExcel.map(f => ({ codigo_barras: f.codigo_barras, cantidad: f.cantidad, costo_unitario: f.costo_unitario })),
       tipoMasivo,
-      parseInt(almacenMasivo)
+      parseInt(almacenMasivo),
+      parseInt(localizacionMasivo)
     )
     setProcesando(false)
     setResultadoMasivo(resultado)
@@ -484,13 +500,34 @@ export default function MovimientosManualesPage() {
                 {/* Almacén */}
                 <div className="space-y-2">
                   <Label className="text-sm">Almacén destino *</Label>
-                  <Select value={almacenMasivo} onValueChange={setAlmacenMasivo}>
+                  <Select value={almacenMasivo} onValueChange={handleAlmacenMasivoChange}>
                     <SelectTrigger className="bg-background">
                       <SelectValue placeholder="Seleccione almacén" />
                     </SelectTrigger>
                     <SelectContent>
                       {almacenes.map((a) => (
                         <SelectItem key={a.id} value={a.id!.toString()}>{a.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Localización */}
+                <div className="space-y-2">
+                  <Label className="text-sm flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5" /> Localización *
+                  </Label>
+                  <Select
+                    value={localizacionMasivo}
+                    onValueChange={setLocalizacionMasivo}
+                    disabled={!almacenMasivo}
+                  >
+                    <SelectTrigger className="bg-background">
+                      <SelectValue placeholder={almacenMasivo ? "Seleccione localización" : "Primero seleccione almacén"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {localizacionesMasivo.map((l) => (
+                        <SelectItem key={l.id} value={l.id!.toString()}>{l.nombre}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

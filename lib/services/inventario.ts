@@ -1031,7 +1031,7 @@ export async function procesarIngresosMasivoAdmin(
   rows: Array<{ codigo_barras: string; cantidad: number; costo_unitario?: number | null }>,
   tipo: 'ingreso' | 'salida',
   almacen_id: number,
-  localizacion_id?: number
+  localizacion_id: number
 ): Promise<{ procesados: number; errores: string[] }> {
   const errores: string[] = []
   let procesados = 0
@@ -1074,7 +1074,7 @@ export async function procesarIngresosMasivoAdmin(
       const result = await procesarIngresoManual({
         producto_id: producto.id,
         almacen_id,
-        localizacion_id: localizacion_id ?? 0,
+        localizacion_id: localizacion_id!,
         cantidad: row.cantidad,
         costo_unitario: costoUnitario,
         observaciones: 'Carga masiva admin',
