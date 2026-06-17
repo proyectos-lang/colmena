@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Eye, CreditCard, Download, FileSpreadsheet, CalendarIcon, Banknote, Wallet, Shuffle, Trash2, Loader2 } from "lucide-react"
+import { Eye, CreditCard, Download, FileSpreadsheet, CalendarIcon, Banknote, Wallet, Shuffle, Trash2, Loader2, ChevronRight, ChevronDown } from "lucide-react"
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
 import * as XLSX from "xlsx"
@@ -118,6 +118,11 @@ export default function HistorialVentasPage() {
   // --- Eliminar venta (alert dialog) ---
   const [ventaAEliminar, setVentaAEliminar] = React.useState<VentaEncabezado | null>(null)
   const [deletingVenta, setDeletingVenta] = React.useState(false)
+
+  // --- Filas expandibles en Resumen de Facturas ---
+  const [expandedVentaIds, setExpandedVentaIds] = React.useState<Set<number>>(new Set())
+  const [detallesCache, setDetallesCache] = React.useState<Record<number, VentaDetalle[]>>({})
+  const [loadingDetalleIds, setLoadingDetalleIds] = React.useState<Set<number>>(new Set())
 
   React.useEffect(() => {
     loadData()
@@ -287,30 +292,71 @@ export default function HistorialVentasPage() {
     }
   }
 
-  function exportFacturasToExcel() {
+  async function toggleExpandVenta(ventaId: number) {
+    if (expandedVentaIds.has(ventaId)) {
+      setExpandedVentaIds(prev => { const s = new Set(prev); s.delete(ventaId); return s })
+      return
+    }
+    if (!detallesCache[ventaId]) {
+      setLoadingDetalleIds(prev => new Set(prev).add(ventaId))
+      try {
+        const { data } = await getDetallesVenta(ventaId)
+        setDetallesCache(prev => ({ ...prev, [ventaId]: data }))
+      } finally {
+        setLoadingDetalleIds(prev => { const s = new Set(prev); s.delete(ventaId); return s })
+      }
+    }
+    setExpandedVentaIds(prev => new Set(prev).add(ventaId))
+  }
+
+  async function exportFacturasToExcel() {
     if (ventasFiltradas.length === 0) {
       toast({ title: "Sin datos", description: "No hay facturas para exportar", variant: "destructive" })
       return
     }
-    const rows = ventasFiltradas.map(v => ({
-      "N° Factura": v.numero_factura ?? "",
-      "Fecha": v.fecha_venta?.split('T')[0] ?? "",
-      "Cliente": v.cliente_nombre ?? "",
-      "Emprendimiento": v.emprendimiento_nombre ?? "",
-      "Almacén": v.almacen_nombre ?? "",
-      "Total (L)": Number((v.total_venta ?? 0).toFixed(2)),
-      "Pagado (L)": Number((v.valorpago ?? 0).toFixed(2)),
-      "Saldo (L)": Number(Math.max(0, (v.total_venta ?? 0) - (v.valorpago ?? 0)).toFixed(2)),
-      "Estado": v.estado_pago ?? "",
-    }))
+
+    // Cargar detalles faltantes en paralelo (reutiliza los ya cacheados)
+    const cache: Record<number, VentaDetalle[]> = { ...detallesCache }
+    const faltantes = ventasFiltradas.filter(v => v.id != null && !cache[v.id!])
+    if (faltantes.length > 0) {
+      toast({ title: "Preparando...", description: "Cargando detalle de productos" })
+      await Promise.all(faltantes.map(async v => {
+        const { data } = await getDetallesVenta(v.id!)
+        cache[v.id!] = data
+      }))
+      setDetallesCache(cache)
+    }
+
+    // Una fila por cada línea de producto vendido
+    const rows = ventasFiltradas.flatMap(v => {
+      const lineas = cache[v.id!] ?? []
+      const base = {
+        "N° Factura": v.numero_factura ?? "",
+        "Fecha": v.fecha_venta?.split('T')[0] ?? "",
+        "Cliente": v.cliente_nombre ?? "",
+        "Emprendimiento": v.emprendimiento_nombre ?? "",
+        "Almacén": v.almacen_nombre ?? "",
+        "Estado": v.estado_pago ?? "",
+        "Total Factura (L)": Number((v.total_venta ?? 0).toFixed(2)),
+      }
+      if (lineas.length === 0) return [{ ...base, "Producto": "", "Cantidad": 0, "Precio Unit. (L)": 0, "Subtotal Línea (L)": 0 }]
+      return lineas.map(d => ({
+        ...base,
+        "Producto": d.producto_nombre ?? "",
+        "Cantidad": d.cantidad ?? 0,
+        "Precio Unit. (L)": Number((d.precio_unitario ?? 0).toFixed(2)),
+        "Subtotal Línea (L)": Number(((d.cantidad ?? 0) * (d.precio_unitario ?? 0)).toFixed(2)),
+      }))
+    })
+
     const ws = XLSX.utils.json_to_sheet(rows)
     ws["!cols"] = [
       { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 22 }, { wch: 18 },
-      { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 },
+      { wch: 12 }, { wch: 16 }, { wch: 26 }, { wch: 10 }, { wch: 16 }, { wch: 18 },
     ]
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Resumen Facturas")
-    XLSX.writeFile(wb, `Facturas_${new Date().toISOString().split('T')[0]}.xlsx`)
+    XLSX.utils.book_append_sheet(wb, ws, "Facturas por Producto")
+    XLSX.writeFile(wb, `Facturas_Detalle_${new Date().toISOString().split('T')[0]}.xlsx`)
     toast({ title: "Exportado", description: "Archivo Excel generado correctamente" })
   }
 
@@ -677,53 +723,87 @@ export default function HistorialVentasPage() {
             ) : ventasFiltradas.map(venta => {
               const saldo = (venta.total_venta ?? 0) - (venta.valorpago ?? 0)
               const saldoColor =
-                saldo <= 0
-                  ? "text-emerald-600"
-                  : saldo < (venta.total_venta ?? 0)
-                    ? "text-amber-600"
-                    : "text-red-600"
+                saldo <= 0 ? "text-emerald-600"
+                : saldo < (venta.total_venta ?? 0) ? "text-amber-600"
+                : "text-red-600"
+              const isExpanded = expandedVentaIds.has(venta.id!)
+              const isLoadingDetalle = loadingDetalleIds.has(venta.id!)
+              const lineas = detallesCache[venta.id!] ?? []
               return (
-                <Card key={venta.id} className="p-4 rounded-2xl shadow-sm border border-stone-200">
-                  <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <p className="font-mono font-medium text-primary">{venta.numero_factura}</p>
-                      <p className="text-xs text-muted-foreground">{venta.fecha_venta?.split('T')[0] || ''}</p>
+                <Card key={venta.id} className="rounded-2xl shadow-sm border border-stone-200">
+                  <div className="p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <p className="font-mono font-medium text-primary">{venta.numero_factura}</p>
+                        <p className="text-xs text-muted-foreground">{venta.fecha_venta?.split('T')[0] || ''}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        {getEstadoBadge(venta.estado_pago)}
+                        {getMetodoPagoBadge(venta.id)}
+                      </div>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
-                      {getEstadoBadge(venta.estado_pago)}
-                      {getMetodoPagoBadge(venta.id)}
-                    </div>
-                  </div>
-                  <p className="text-sm truncate mb-1">{venta.cliente_nombre}</p>
-                  {venta.emprendimiento_nombre && (
-                    <p className="text-xs text-stone-500 truncate mb-2">
-                      Emprendimiento: <span className="font-medium text-stone-700">{venta.emprendimiento_nombre}</span>
-                    </p>
-                  )}
-                  <div className="flex justify-between items-center gap-3">
-                    <div className="min-w-0">
-                      <p className="font-bold text-base leading-tight">L {(venta.total_venta ?? 0).toFixed(2)}</p>
-                      <p className={`text-xs font-medium ${saldoColor}`}>
-                        Saldo: L {Math.max(0, saldo).toFixed(2)}
+                    <p className="text-sm truncate mb-1">{venta.cliente_nombre}</p>
+                    {venta.emprendimiento_nombre && (
+                      <p className="text-xs text-stone-500 truncate mb-2">
+                        Emprendimiento: <span className="font-medium text-stone-700">{venta.emprendimiento_nombre}</span>
                       </p>
-                    </div>
-                    <div className="flex gap-1 shrink-0">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => viewDetalle(venta)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => generatePdf(venta)}>
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                        onClick={() => setVentaAEliminar(venta)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                    )}
+                    <div className="flex justify-between items-center gap-3">
+                      <div className="min-w-0">
+                        <p className="font-bold text-base leading-tight">L {(venta.total_venta ?? 0).toFixed(2)}</p>
+                        <p className={`text-xs font-medium ${saldoColor}`}>
+                          Saldo: L {Math.max(0, saldo).toFixed(2)}
+                        </p>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <Button
+                          variant="ghost" size="icon" className="h-8 w-8"
+                          onClick={() => toggleExpandVenta(venta.id!)}
+                          title={isExpanded ? "Ocultar productos" : "Ver productos"}
+                        >
+                          {isLoadingDetalle
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : isExpanded
+                              ? <ChevronDown className="h-4 w-4" />
+                              : <ChevronRight className="h-4 w-4" />
+                          }
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => viewDetalle(venta)}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => generatePdf(venta)}>
+                          <Download className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost" size="icon"
+                          className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => setVentaAEliminar(venta)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Detalle expandido mobile */}
+                  {isExpanded && lineas.length > 0 && (
+                    <div className="border-t border-stone-100 px-4 py-3 bg-stone-50/60 rounded-b-2xl">
+                      <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">
+                        Productos ({lineas.length})
+                      </p>
+                      <div className="space-y-2">
+                        {lineas.map((d, idx) => (
+                          <div key={idx} className="flex justify-between items-start gap-2 text-sm">
+                            <span className="font-medium text-stone-700 leading-tight">{d.producto_nombre}</span>
+                            <div className="text-right shrink-0 text-xs text-stone-500">
+                              <p>{d.cantidad} × L {(d.precio_unitario ?? 0).toFixed(2)}</p>
+                              <p className="font-medium text-stone-700">L {((d.cantidad ?? 0) * (d.precio_unitario ?? 0)).toFixed(2)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </Card>
               )
             })}
@@ -735,6 +815,7 @@ export default function HistorialVentasPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-stone-50 border-b border-stone-200">
+                    <TableHead className="w-8" />
                     <TableHead className="font-semibold text-stone-700">N° Factura</TableHead>
                     <TableHead className="font-semibold text-stone-700">Fecha</TableHead>
                     <TableHead className="font-semibold text-stone-700">Cliente</TableHead>
@@ -750,54 +831,105 @@ export default function HistorialVentasPage() {
                 <TableBody>
                   {ventasFiltradas.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center text-muted-foreground py-10">
+                      <TableCell colSpan={11} className="text-center text-muted-foreground py-10">
                         No hay ventas para mostrar
                       </TableCell>
                     </TableRow>
                   ) : ventasFiltradas.map(venta => {
-                    // Saldo = total_venta - valorpago (COALESCE a 0)
                     const saldo = (venta.total_venta ?? 0) - (venta.valorpago ?? 0)
+                    const isExpanded = expandedVentaIds.has(venta.id!)
+                    const isLoadingDetalle = loadingDetalleIds.has(venta.id!)
+                    const lineas = detallesCache[venta.id!] ?? []
                     return (
-                      <TableRow key={venta.id} className="hover:bg-stone-50/50">
-                        <TableCell className="font-mono font-medium">{venta.numero_factura}</TableCell>
-                        <TableCell>{venta.fecha_venta?.split('T')[0] || ''}</TableCell>
-                        <TableCell>{venta.cliente_nombre}</TableCell>
-                        <TableCell className="font-medium text-stone-700">{venta.emprendimiento_nombre || <span className="text-stone-400">—</span>}</TableCell>
-                        <TableCell className="text-muted-foreground">{venta.almacen_nombre || '-'}</TableCell>
-                        <TableCell className="text-right font-medium">L {(venta.total_venta ?? 0).toFixed(2)}</TableCell>
-                        <TableCell
-                          className={`text-right font-medium ${
-                            saldo <= 0
-                              ? "text-emerald-600"
-                              : saldo < (venta.total_venta ?? 0)
-                                ? "text-amber-600"
-                                : "text-red-600"
-                          }`}
-                        >
-                          L {Math.max(0, saldo).toFixed(2)}
-                        </TableCell>
-                        <TableCell>{getEstadoBadge(venta.estado_pago)}</TableCell>
-                        <TableCell>{getMetodoPagoBadge(venta.id)}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => viewDetalle(venta)} title="Ver detalle">
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => generatePdf(venta)} title="Descargar PDF">
-                              <Download className="h-4 w-4" />
-                            </Button>
+                      <React.Fragment key={venta.id}>
+                        <TableRow className={`hover:bg-stone-50/50 ${isExpanded ? "bg-stone-50/40" : ""}`}>
+                          <TableCell className="w-8 pl-3">
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              onClick={() => setVentaAEliminar(venta)}
-                              title="Eliminar venta"
+                              className="h-6 w-6"
+                              onClick={() => toggleExpandVenta(venta.id!)}
+                              title={isExpanded ? "Ocultar detalle" : "Ver detalle de productos"}
                             >
-                              <Trash2 className="h-4 w-4" />
+                              {isLoadingDetalle
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                : isExpanded
+                                  ? <ChevronDown className="h-3.5 w-3.5" />
+                                  : <ChevronRight className="h-3.5 w-3.5" />
+                              }
                             </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
+                          </TableCell>
+                          <TableCell className="font-mono font-medium">{venta.numero_factura}</TableCell>
+                          <TableCell>{venta.fecha_venta?.split('T')[0] || ''}</TableCell>
+                          <TableCell>{venta.cliente_nombre}</TableCell>
+                          <TableCell className="font-medium text-stone-700">{venta.emprendimiento_nombre || <span className="text-stone-400">—</span>}</TableCell>
+                          <TableCell className="text-muted-foreground">{venta.almacen_nombre || '-'}</TableCell>
+                          <TableCell className="text-right font-medium">L {(venta.total_venta ?? 0).toFixed(2)}</TableCell>
+                          <TableCell
+                            className={`text-right font-medium ${
+                              saldo <= 0 ? "text-emerald-600"
+                              : saldo < (venta.total_venta ?? 0) ? "text-amber-600"
+                              : "text-red-600"
+                            }`}
+                          >
+                            L {Math.max(0, saldo).toFixed(2)}
+                          </TableCell>
+                          <TableCell>{getEstadoBadge(venta.estado_pago)}</TableCell>
+                          <TableCell>{getMetodoPagoBadge(venta.id)}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="icon" onClick={() => viewDetalle(venta)} title="Ver detalle completo">
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" onClick={() => generatePdf(venta)} title="Descargar PDF">
+                                <Download className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => setVentaAEliminar(venta)}
+                                title="Eliminar venta"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+
+                        {/* Fila expandida con detalle de productos */}
+                        {isExpanded && (
+                          <TableRow className="bg-stone-50/60 hover:bg-stone-50/60">
+                            <TableCell colSpan={11} className="py-0 pl-12 pr-4">
+                              <div className="py-3 border-l-2 border-primary/30 pl-4">
+                                <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">
+                                  Detalle de productos — {lineas.length} línea{lineas.length !== 1 ? "s" : ""}
+                                </p>
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="text-xs text-stone-500 border-b border-stone-200">
+                                      <th className="text-left font-medium pb-1.5">Producto</th>
+                                      <th className="text-right font-medium pb-1.5 w-16">Cant.</th>
+                                      <th className="text-right font-medium pb-1.5 w-28">Precio Unit.</th>
+                                      <th className="text-right font-medium pb-1.5 w-28">Subtotal</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-stone-100">
+                                    {lineas.map((d, idx) => (
+                                      <tr key={idx} className="text-stone-700">
+                                        <td className="py-1.5 pr-4 font-medium">{d.producto_nombre}</td>
+                                        <td className="py-1.5 text-right text-stone-500">{d.cantidad}</td>
+                                        <td className="py-1.5 text-right text-stone-500">L {(d.precio_unitario ?? 0).toFixed(2)}</td>
+                                        <td className="py-1.5 text-right font-medium">L {((d.cantidad ?? 0) * (d.precio_unitario ?? 0)).toFixed(2)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
                     )
                   })}
                 </TableBody>
