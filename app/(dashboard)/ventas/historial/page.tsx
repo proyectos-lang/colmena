@@ -359,7 +359,7 @@ export default function HistorialVentasPage() {
       "Cantidad": l.cantidad ?? 0,
       "Precio Unit. Bruto (L)": Number((l.precio_bruto_unitario ?? 0).toFixed(2)),
       "Precio Unit. Neto (L)": Number(l.precio_neto_unitario.toFixed(2)),
-      "Subtotal Neto (L)": Number(((l.cantidad ?? 0) * l.precio_neto_unitario).toFixed(2)),
+      "Subtotal Final (L)": Number((((l.cantidad ?? 0) * l.precio_neto_unitario) * (1 - (l.descuento ?? 0) / 100)).toFixed(2)),
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     ws["!cols"] = [
@@ -746,7 +746,7 @@ export default function HistorialVentasPage() {
               <Card className="p-8 text-center text-muted-foreground rounded-2xl">No hay líneas de venta registradas</Card>
             ) : lineasPagina.map(linea => {
               const tieneComision = linea.comision_porcentaje > 0
-              const subtotalNeto = (linea.cantidad ?? 0) * linea.precio_neto_unitario
+              const subtotalNeto = +((linea.cantidad ?? 0) * linea.precio_neto_unitario * (1 - (linea.descuento ?? 0) / 100)).toFixed(2)
               return (
                 <Card key={linea.detalle_id} className="rounded-2xl shadow-sm border border-stone-200">
                   <div className="p-4">
@@ -842,7 +842,7 @@ export default function HistorialVentasPage() {
                         <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Descuento</TableHead>
                         <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Cant.</TableHead>
                         <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Precio Unit. (neto)</TableHead>
-                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Subtotal neto</TableHead>
+                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Subtotal final</TableHead>
                         <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Estado</TableHead>
                         <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Acciones</TableHead>
                       </TableRow>
@@ -856,7 +856,7 @@ export default function HistorialVentasPage() {
                         </TableRow>
                       ) : lineasPagina.map(linea => {
                         const tieneComision = linea.comision_porcentaje > 0
-                        const subtotalNeto = (linea.cantidad ?? 0) * linea.precio_neto_unitario
+                        const subtotalNeto = +((linea.cantidad ?? 0) * linea.precio_neto_unitario * (1 - (linea.descuento ?? 0) / 100)).toFixed(2)
                         return (
                           <TableRow key={linea.detalle_id} className="hover:bg-stone-50/50">
                             <TableCell>
