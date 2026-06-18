@@ -215,25 +215,29 @@ export async function aprobarProductoPendiente(
 
   const productoId = productoInsertado.id
 
-  if ((pendiente.cantidad_inicial ?? 0) > 0 && almacenIdDefault && localizacionIdDefault) {
+  const cantidadInicial = pendiente.cantidad_inicial ?? 0
+  if (cantidadInicial > 0) {
+    if (!almacenIdDefault) return { error: "Almacén destino es obligatorio cuando el producto tiene cantidad inicial" }
+    if (!localizacionIdDefault) return { error: "Localización es obligatoria cuando el producto tiene cantidad inicial" }
+
     const txPayload = {
       producto_id: productoId,
       almacen_id: almacenIdDefault,
       localizacion_id: localizacionIdDefault,
       tipo_movimiento: "Ingreso Manual",
-      cantidad: pendiente.cantidad_inicial,
+      cantidad: cantidadInicial,
       costo_o_precio_unitario: pendiente.precio_costo ?? 0,
       razon_social_id: razonSocialId,
       usuario: adminUsuario,
     }
 
     const { error: txErr } = await supabase.from("transacciones_inventario").insert(txPayload)
-    if (!txErr) {
-      await supabase
-        .from("productos")
-        .update({ stock_total: pendiente.cantidad_inicial, costo_promedio: pendiente.precio_costo ?? 0 })
-        .eq("id", productoId)
-    }
+    if (txErr) return { error: `Error al registrar ingreso de inventario: ${txErr.message}` }
+
+    await supabase
+      .from("productos")
+      .update({ stock_total: cantidadInicial, costo_promedio: pendiente.precio_costo ?? 0 })
+      .eq("id", productoId)
   }
 
   await supabase

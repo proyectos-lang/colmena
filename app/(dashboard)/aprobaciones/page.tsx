@@ -176,34 +176,45 @@ export default function AprobacionesPage() {
 
   const confirmarAprobar = async () => {
     if (!aprobarTarget) return
-    const almacenId = almacenSeleccionado ? Number(almacenSeleccionado) : undefined
-    const localizacionId = localizacionSeleccionada ? Number(localizacionSeleccionada) : 1
 
-    let error: string | null = null
-    if (aprobarTarget.tipo === "producto") {
-      const res = await aprobarProductoPendiente(
-        aprobarTarget.id,
-        user?.nombre ?? "admin",
-        razonSocialId,
-        almacenId,
-        almacenId ? localizacionId : undefined
-      )
-      error = res.error
-    } else {
-      if (!almacenSeleccionado) { toast.error("Selecciona un almacén destino"); return }
-      const res = await aprobarIngresoPendiente(
-        aprobarTarget.id,
-        user?.nombre ?? "admin",
-        Number(almacenSeleccionado),
-        localizacionId
-      )
-      error = res.error
+    // Validar almacén y localización obligatorios
+    const necesitaUbicacion = aprobarTarget.tieneCantidad || aprobarTarget.tipo === "ingreso"
+    if (necesitaUbicacion) {
+      if (!almacenSeleccionado) { toast.error("El almacén destino es obligatorio"); return }
+      if (!localizacionSeleccionada) { toast.error("La localización es obligatoria"); return }
     }
 
-    if (error) { toast.error(`Error: ${error}`); return }
-    toast.success("Aprobado correctamente")
-    setAprobarOpen(false)
-    cargar()
+    const almacenId = almacenSeleccionado ? Number(almacenSeleccionado) : undefined
+    const localizacionId = localizacionSeleccionada ? Number(localizacionSeleccionada) : undefined
+
+    try {
+      let error: string | null = null
+      if (aprobarTarget.tipo === "producto") {
+        const res = await aprobarProductoPendiente(
+          aprobarTarget.id,
+          user?.nombre ?? "admin",
+          razonSocialId,
+          almacenId,
+          localizacionId
+        )
+        error = res.error
+      } else {
+        const res = await aprobarIngresoPendiente(
+          aprobarTarget.id,
+          user?.nombre ?? "admin",
+          Number(almacenSeleccionado),
+          Number(localizacionSeleccionada)
+        )
+        error = res.error
+      }
+
+      if (error) { toast.error(`Error: ${error}`); return }
+      toast.success("Aprobado correctamente")
+      setAprobarOpen(false)
+      cargar()
+    } catch (err: any) {
+      toast.error(`Error inesperado: ${err?.message ?? "intente de nuevo"}`)
+    }
   }
 
   // ── Aprobación masiva ────────────────────────────────────────────────────
@@ -217,42 +228,53 @@ export default function AprobacionesPage() {
   }
 
   const confirmarMasivo = async () => {
-    const localizacionId = masivoLocalizacion ? Number(masivoLocalizacion) : 1
+    // Almacén y localización siempre obligatorios
+    if (!masivoAlmacen) {
+      toast.error("El almacén destino es obligatorio")
+      return
+    }
+    if (!masivoLocalizacion) {
+      toast.error("La localización es obligatoria")
+      return
+    }
+
+    const almacenId = Number(masivoAlmacen)
+    const localizacionId = Number(masivoLocalizacion)
     const ids = masivoTipo === "producto"
       ? Array.from(selProductos)
       : Array.from(selIngresos)
-
-    if (masivoTipo === "ingreso" && !masivoAlmacen) {
-      toast.error("Selecciona un almacén destino")
-      return
-    }
 
     setAprobando(true)
     let ok = 0
     let errores = 0
 
-    for (const id of ids) {
-      let error: string | null = null
-      if (masivoTipo === "producto") {
-        const almacenId = masivoAlmacen ? Number(masivoAlmacen) : undefined
-        const res = await aprobarProductoPendiente(
-          id,
-          user?.nombre ?? "admin",
-          razonSocialId,
-          almacenId,
-          almacenId ? localizacionId : undefined
-        )
-        error = res.error
-      } else {
-        const res = await aprobarIngresoPendiente(
-          id,
-          user?.nombre ?? "admin",
-          Number(masivoAlmacen),
-          localizacionId
-        )
-        error = res.error
+    try {
+      for (const id of ids) {
+        let error: string | null = null
+        if (masivoTipo === "producto") {
+          const res = await aprobarProductoPendiente(
+            id,
+            user?.nombre ?? "admin",
+            razonSocialId,
+            almacenId,
+            localizacionId
+          )
+          error = res.error
+        } else {
+          const res = await aprobarIngresoPendiente(
+            id,
+            user?.nombre ?? "admin",
+            almacenId,
+            localizacionId
+          )
+          error = res.error
+        }
+        error ? errores++ : ok++
       }
-      error ? errores++ : ok++
+    } catch (err: any) {
+      setAprobando(false)
+      toast.error(`Error inesperado: ${err?.message ?? "intente de nuevo"}`)
+      return
     }
 
     setAprobando(false)
@@ -568,13 +590,13 @@ export default function AprobacionesPage() {
             <DialogTitle>Aprobar {aprobarTarget?.tipo === "producto" ? "producto" : "carga de inventario"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {(aprobarTarget?.tieneCantidad || aprobarTarget?.tipo === "ingreso") && (
+            {(aprobarTarget?.tieneCantidad || aprobarTarget?.tipo === "ingreso") ? (
               <>
                 <p className="text-sm text-muted-foreground">
-                  Este registro tiene cantidad inicial. Selecciona el almacén y localización donde se registrará el ingreso de inventario.
+                  Selecciona el almacén y localización donde se registrará el ingreso de inventario. Ambos son obligatorios.
                 </p>
-                <div>
-                  <Label>Almacén destino {aprobarTarget?.tipo === "ingreso" ? "*" : "(opcional)"}</Label>
+                <div className="space-y-1">
+                  <Label>Almacén destino <span className="text-red-500">*</span></Label>
                   <Select value={almacenSeleccionado} onValueChange={setAlmacenSeleccionado}>
                     <SelectTrigger>
                       <SelectValue placeholder="Seleccionar almacén" />
@@ -586,24 +608,25 @@ export default function AprobacionesPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                {localizaciones.length > 0 && (
-                  <div>
-                    <Label>Localización</Label>
-                    <Select value={localizacionSeleccionada} onValueChange={setLocalizacionSeleccionada}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar localización" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {localizaciones.map((l) => (
-                          <SelectItem key={l.id} value={String(l.id)}>{l.nombre}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
+                <div className="space-y-1">
+                  <Label>Localización <span className="text-red-500">*</span></Label>
+                  <Select
+                    value={localizacionSeleccionada}
+                    onValueChange={setLocalizacionSeleccionada}
+                    disabled={!almacenSeleccionado}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={almacenSeleccionado ? (localizaciones.length === 0 ? "Sin localizaciones disponibles" : "Seleccionar localización") : "Primero seleccione un almacén"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {localizaciones.map((l) => (
+                        <SelectItem key={l.id} value={String(l.id)}>{l.nombre}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </>
-            )}
-            {aprobarTarget?.tipo === "producto" && !aprobarTarget?.tieneCantidad && (
+            ) : (
               <p className="text-sm text-muted-foreground">
                 Este producto no tiene cantidad inicial. Se creará en el catálogo con stock 0.
               </p>
@@ -627,11 +650,11 @@ export default function AprobacionesPage() {
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
               {masivoTipo === "producto"
-                ? "Todos los productos seleccionados se aprobarán. Si alguno tiene cantidad inicial, se registrará el stock en el almacén elegido."
-                : "Todas las cargas seleccionadas se registrarán en el almacén y localización indicados."}
+                ? "Los productos seleccionados se aprobarán. El stock se registrará en el almacén y localización indicados."
+                : "Las cargas seleccionadas se registrarán en el almacén y localización indicados."}
             </p>
-            <div>
-              <Label>Almacén destino {masivoTipo === "ingreso" ? "*" : "(opcional)"}</Label>
+            <div className="space-y-1">
+              <Label>Almacén destino <span className="text-red-500">*</span></Label>
               <Select value={masivoAlmacen} onValueChange={setMasivoAlmacen}>
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar almacén" />
@@ -643,21 +666,23 @@ export default function AprobacionesPage() {
                 </SelectContent>
               </Select>
             </div>
-            {masivoLocalizaciones.length > 0 && (
-              <div>
-                <Label>Localización</Label>
-                <Select value={masivoLocalizacion} onValueChange={setMasivoLocalizacion}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar localización" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {masivoLocalizaciones.map((l) => (
-                      <SelectItem key={l.id} value={String(l.id)}>{l.nombre}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            <div className="space-y-1">
+              <Label>Localización <span className="text-red-500">*</span></Label>
+              <Select
+                value={masivoLocalizacion}
+                onValueChange={setMasivoLocalizacion}
+                disabled={!masivoAlmacen}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={masivoAlmacen ? (masivoLocalizaciones.length === 0 ? "Sin localizaciones disponibles" : "Seleccionar localización") : "Primero seleccione un almacén"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {masivoLocalizaciones.map((l) => (
+                    <SelectItem key={l.id} value={String(l.id)}>{l.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setMasivoOpen(false)} disabled={aprobando}>
