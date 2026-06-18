@@ -124,6 +124,8 @@ export default function HistorialVentasPage() {
 
   // --- Lineas de venta (historial línea por línea) ---
   const [lineas, setLineas] = React.useState<LineaVenta[]>([])
+  const [pagLineas, setPagLineas] = React.useState(1)
+  const PAGE_SIZE_LINEAS = 50
 
   // --- Eliminar línea individual ---
   const [lineaAEliminar, setLineaAEliminar] = React.useState<LineaVenta | null>(null)
@@ -208,6 +210,19 @@ export default function HistorialVentasPage() {
       return matchInicio && matchFin && matchCliente && matchAlmacen && matchEstado && matchEmprendimiento
     })
   }, [lineas, filtroFechaInicioFacturas, filtroFechaFinFacturas, filtroClienteIdFacturas, filtroAlmacenIdFacturas, filtroEstadoPago, filtroEmprendimientoFacturas, clientes, almacenes])
+
+  // Reset to page 1 whenever any filter changes
+  React.useEffect(() => { setPagLineas(1) }, [
+    filtroFechaInicioFacturas, filtroFechaFinFacturas,
+    filtroClienteIdFacturas, filtroAlmacenIdFacturas,
+    filtroEstadoPago, filtroEmprendimientoFacturas,
+  ])
+
+  const totalPaginasLineas = Math.max(1, Math.ceil(lineasFiltradas.length / PAGE_SIZE_LINEAS))
+  const lineasPagina = lineasFiltradas.slice(
+    (pagLineas - 1) * PAGE_SIZE_LINEAS,
+    pagLineas * PAGE_SIZE_LINEAS
+  )
 
   // ventasFiltradas kept for PDF generation compatibility
   const ventasFiltradas = React.useMemo(() => ventas, [ventas])
@@ -733,7 +748,7 @@ export default function HistorialVentasPage() {
           <div className="block md:hidden space-y-3">
             {lineasFiltradas.length === 0 ? (
               <Card className="p-8 text-center text-muted-foreground rounded-2xl">No hay líneas de venta registradas</Card>
-            ) : lineasFiltradas.map(linea => {
+            ) : lineasPagina.map(linea => {
               const tieneComision = linea.comision_porcentaje > 0
               const subtotalNeto = (linea.cantidad ?? 0) * linea.precio_neto_unitario
               return (
@@ -789,85 +804,114 @@ export default function HistorialVentasPage() {
                 </Card>
               )
             })}
+            {/* Paginación mobile */}
+            {lineasFiltradas.length > 0 && (
+              <div className="flex items-center justify-between pt-1 pb-2 px-1">
+                <span className="text-xs text-stone-500">
+                  {(pagLineas - 1) * PAGE_SIZE_LINEAS + 1}–{Math.min(pagLineas * PAGE_SIZE_LINEAS, lineasFiltradas.length)} de {lineasFiltradas.length}
+                </span>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="h-7 text-xs" disabled={pagLineas === 1} onClick={() => setPagLineas(p => p - 1)}>Anterior</Button>
+                  <Button variant="outline" size="sm" className="h-7 text-xs" disabled={pagLineas >= totalPaginasLineas} onClick={() => setPagLineas(p => p + 1)}>Siguiente</Button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Desktop */}
           <Card className="hidden md:block rounded-2xl shadow-sm border border-stone-200">
-            <CardContent className="p-0 overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-stone-50 border-b border-stone-200">
-                    <TableHead className="font-semibold text-stone-700">Emprendimiento</TableHead>
-                    <TableHead className="font-semibold text-stone-700">Fecha</TableHead>
-                    <TableHead className="font-semibold text-stone-700">N° Factura</TableHead>
-                    <TableHead className="font-semibold text-stone-700">Cliente</TableHead>
-                    <TableHead className="font-semibold text-stone-700">Producto</TableHead>
-                    <TableHead className="font-semibold text-stone-700">Método</TableHead>
-                    <TableHead className="font-semibold text-stone-700 text-right">Cant.</TableHead>
-                    <TableHead className="font-semibold text-stone-700 text-right">Precio Unit. (neto)</TableHead>
-                    <TableHead className="font-semibold text-stone-700 text-right">Subtotal neto</TableHead>
-                    <TableHead className="font-semibold text-stone-700">Estado</TableHead>
-                    <TableHead className="font-semibold text-stone-700 text-right">Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {lineasFiltradas.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={11} className="text-center text-muted-foreground py-10">
-                        No hay líneas de venta para mostrar
-                      </TableCell>
-                    </TableRow>
-                  ) : lineasFiltradas.map(linea => {
-                    const tieneComision = linea.comision_porcentaje > 0
-                    const subtotalNeto = (linea.cantidad ?? 0) * linea.precio_neto_unitario
-                    return (
-                      <TableRow key={linea.detalle_id} className="hover:bg-stone-50/50">
-                        <TableCell>
-                          {linea.emprendimiento_nombre
-                            ? <span className="font-medium text-amber-700">{linea.emprendimiento_nombre}</span>
-                            : <span className="text-stone-400">—</span>}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-stone-600">{linea.fecha_venta?.split('T')[0] || ''}</TableCell>
-                        <TableCell className="font-mono font-medium whitespace-nowrap">{linea.numero_factura}</TableCell>
-                        <TableCell className="text-stone-600">{linea.cliente_nombre}</TableCell>
-                        <TableCell className="font-medium text-stone-800">{linea.producto_nombre}</TableCell>
-                        <TableCell>{getMetodoBadgeLinea(linea.metodo_pago)}</TableCell>
-                        <TableCell className="text-right text-stone-600">{linea.cantidad}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">
-                          {tieneComision ? (
-                            <div className="flex flex-col items-end leading-tight">
-                              <span className="font-medium">L {linea.precio_neto_unitario.toFixed(2)}</span>
-                              <span className="text-xs text-blue-600">−{linea.comision_porcentaje.toFixed(2)}%</span>
-                              <span className="text-xs text-stone-400 line-through">L {(linea.precio_unitario ?? 0).toFixed(2)}</span>
-                            </div>
-                          ) : (
-                            <span className="text-stone-600">L {(linea.precio_unitario ?? 0).toFixed(2)}</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right font-medium whitespace-nowrap">
-                          L {subtotalNeto.toFixed(2)}
-                        </TableCell>
-                        <TableCell>{getEstadoBadge(linea.estado_pago)}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="icon"
-                              onClick={() => { const v = ventas.find(x => x.id === linea.venta_id); if (v) generatePdf(v) }}
-                              title="Descargar PDF de la factura">
-                              <Download className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon"
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              onClick={() => setLineaAEliminar(linea)}
-                              title="Eliminar esta línea">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <div style={{ maxHeight: 480 }} className="overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-stone-50 border-b border-stone-200">
+                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Emprendimiento</TableHead>
+                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Fecha</TableHead>
+                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">N° Factura</TableHead>
+                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Cliente</TableHead>
+                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Producto</TableHead>
+                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Método</TableHead>
+                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Cant.</TableHead>
+                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Precio Unit. (neto)</TableHead>
+                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Subtotal neto</TableHead>
+                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Estado</TableHead>
+                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Acciones</TableHead>
                       </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {lineasFiltradas.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={11} className="text-center text-muted-foreground py-10">
+                            No hay líneas de venta para mostrar
+                          </TableCell>
+                        </TableRow>
+                      ) : lineasPagina.map(linea => {
+                        const tieneComision = linea.comision_porcentaje > 0
+                        const subtotalNeto = (linea.cantidad ?? 0) * linea.precio_neto_unitario
+                        return (
+                          <TableRow key={linea.detalle_id} className="hover:bg-stone-50/50">
+                            <TableCell>
+                              {linea.emprendimiento_nombre
+                                ? <span className="font-medium text-amber-700">{linea.emprendimiento_nombre}</span>
+                                : <span className="text-stone-400">—</span>}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap text-stone-600">{linea.fecha_venta?.split('T')[0] || ''}</TableCell>
+                            <TableCell className="font-mono font-medium whitespace-nowrap">{linea.numero_factura}</TableCell>
+                            <TableCell className="text-stone-600">{linea.cliente_nombre}</TableCell>
+                            <TableCell className="font-medium text-stone-800">{linea.producto_nombre}</TableCell>
+                            <TableCell>{getMetodoBadgeLinea(linea.metodo_pago)}</TableCell>
+                            <TableCell className="text-right text-stone-600">{linea.cantidad}</TableCell>
+                            <TableCell className="text-right whitespace-nowrap">
+                              {tieneComision ? (
+                                <div className="flex flex-col items-end leading-tight">
+                                  <span className="font-medium">L {linea.precio_neto_unitario.toFixed(2)}</span>
+                                  <span className="text-xs text-blue-600">−{linea.comision_porcentaje.toFixed(2)}%</span>
+                                  <span className="text-xs text-stone-400 line-through">L {(linea.precio_unitario ?? 0).toFixed(2)}</span>
+                                </div>
+                              ) : (
+                                <span className="text-stone-600">L {(linea.precio_unitario ?? 0).toFixed(2)}</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right font-medium whitespace-nowrap">
+                              L {subtotalNeto.toFixed(2)}
+                            </TableCell>
+                            <TableCell>{getEstadoBadge(linea.estado_pago)}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-1">
+                                <Button variant="ghost" size="icon"
+                                  onClick={() => { const v = ventas.find(x => x.id === linea.venta_id); if (v) generatePdf(v) }}
+                                  title="Descargar PDF de la factura">
+                                  <Download className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon"
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  onClick={() => setLineaAEliminar(linea)}
+                                  title="Eliminar esta línea">
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+              {/* Paginación desktop */}
+              {lineasFiltradas.length > 0 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-stone-100">
+                  <span className="text-xs text-stone-500">
+                    {(pagLineas - 1) * PAGE_SIZE_LINEAS + 1}–{Math.min(pagLineas * PAGE_SIZE_LINEAS, lineasFiltradas.length)} de {lineasFiltradas.length} líneas
+                  </span>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="h-8 text-xs border-stone-200" disabled={pagLineas === 1} onClick={() => setPagLineas(p => p - 1)}>Anterior</Button>
+                    <span className="flex items-center text-xs text-stone-500 px-1">{pagLineas} / {totalPaginasLineas}</span>
+                    <Button variant="outline" size="sm" className="h-8 text-xs border-stone-200" disabled={pagLineas >= totalPaginasLineas} onClick={() => setPagLineas(p => p + 1)}>Siguiente</Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
