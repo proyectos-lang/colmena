@@ -43,7 +43,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { toast } from "sonner"
+import { useToast } from "@/hooks/use-toast"
 import { CheckCircle, XCircle, ImageIcon, CheckSquare, Loader2 } from "lucide-react"
 import { format } from "date-fns"
 
@@ -55,6 +55,7 @@ function EstadoBadge({ estado }: { estado: string }) {
 
 export default function AprobacionesPage() {
   const { user } = useAuth()
+  const { toast } = useToast()
   const razonSocialId = user?.razon_social_id ?? 0
 
   const [productosPendientes, setProductosPendientes] = React.useState<ProductoPendiente[]>([])
@@ -180,8 +181,8 @@ export default function AprobacionesPage() {
     // Validar almacén y localización obligatorios
     const necesitaUbicacion = aprobarTarget.tieneCantidad || aprobarTarget.tipo === "ingreso"
     if (necesitaUbicacion) {
-      if (!almacenSeleccionado) { toast.error("El almacén destino es obligatorio"); return }
-      if (!localizacionSeleccionada) { toast.error("La localización es obligatoria"); return }
+      if (!almacenSeleccionado) { toast({ title: "Campo requerido", description: "El almacén destino es obligatorio", variant: "destructive" }); return }
+      if (!localizacionSeleccionada) { toast({ title: "Campo requerido", description: "La localización es obligatoria", variant: "destructive" }); return }
     }
 
     const almacenId = almacenSeleccionado ? Number(almacenSeleccionado) : undefined
@@ -208,12 +209,12 @@ export default function AprobacionesPage() {
         error = res.error
       }
 
-      if (error) { toast.error(`Error: ${error}`); return }
-      toast.success("Aprobado correctamente")
+      if (error) { toast({ title: "Error al aprobar", description: error, variant: "destructive" }); return }
+      toast({ title: "Aprobado", description: "El registro fue aprobado correctamente" })
       setAprobarOpen(false)
       cargar()
     } catch (err: any) {
-      toast.error(`Error inesperado: ${err?.message ?? "intente de nuevo"}`)
+      toast({ title: "Error inesperado", description: err?.message ?? "Intente de nuevo", variant: "destructive" })
     }
   }
 
@@ -230,11 +231,11 @@ export default function AprobacionesPage() {
   const confirmarMasivo = async () => {
     // Almacén y localización siempre obligatorios
     if (!masivoAlmacen) {
-      toast.error("El almacén destino es obligatorio")
+      toast({ title: "Campo requerido", description: "El almacén destino es obligatorio", variant: "destructive" })
       return
     }
     if (!masivoLocalizacion) {
-      toast.error("La localización es obligatoria")
+      toast({ title: "Campo requerido", description: "La localización es obligatoria", variant: "destructive" })
       return
     }
 
@@ -273,7 +274,7 @@ export default function AprobacionesPage() {
       }
     } catch (err: any) {
       setAprobando(false)
-      toast.error(`Error inesperado: ${err?.message ?? "intente de nuevo"}`)
+      toast({ title: "Error inesperado", description: err?.message ?? "Intente de nuevo", variant: "destructive" })
       return
     }
 
@@ -281,9 +282,9 @@ export default function AprobacionesPage() {
     setMasivoOpen(false)
 
     if (errores === 0) {
-      toast.success(`${ok} ${masivoTipo === "producto" ? "productos aprobados" : "cargas aprobadas"} correctamente`)
+      toast({ title: "Aprobación completada", description: `${ok} ${masivoTipo === "producto" ? "productos aprobados" : "cargas aprobadas"} correctamente` })
     } else {
-      toast.warning(`${ok} aprobados, ${errores} con error`)
+      toast({ title: `${ok} aprobados, ${errores} con error`, description: "Revise los registros con error e intente nuevamente", variant: "destructive" })
     }
     cargar()
   }
@@ -298,7 +299,7 @@ export default function AprobacionesPage() {
 
   const confirmarRechazo = async () => {
     if (!rechazoTarget || !rechazoMotivo.trim()) {
-      toast.error("El motivo es requerido")
+      toast({ title: "Campo requerido", description: "El motivo de rechazo es requerido", variant: "destructive" })
       return
     }
     if (rechazoTarget.tipo === "producto") {
@@ -306,7 +307,7 @@ export default function AprobacionesPage() {
     } else {
       await rechazarIngresoPendiente(rechazoTarget.id, rechazoMotivo)
     }
-    toast.success("Rechazado")
+    toast({ title: "Rechazado", description: "El registro fue rechazado" })
     setRechazoOpen(false)
     cargar()
   }
