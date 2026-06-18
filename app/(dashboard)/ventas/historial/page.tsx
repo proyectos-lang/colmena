@@ -337,16 +337,20 @@ export default function HistorialVentasPage() {
       "Cliente": l.cliente_nombre ?? "",
       "Almacén": l.almacen_nombre ?? "",
       "Estado": l.estado_pago ?? "",
+      "Método Pago": l.metodo_pago ?? "",
+      "% Comisión": l.comision_porcentaje > 0 ? Number(l.comision_porcentaje.toFixed(2)) : 0,
       "Producto": l.producto_nombre ?? "",
       "Código": l.codigo_barras ?? "",
       "Cantidad": l.cantidad ?? 0,
-      "Precio Unit. (L)": Number((l.precio_unitario ?? 0).toFixed(2)),
-      "Subtotal Línea (L)": Number(((l.cantidad ?? 0) * (l.precio_unitario ?? 0)).toFixed(2)),
+      "Precio Unit. Bruto (L)": Number((l.precio_unitario ?? 0).toFixed(2)),
+      "Precio Unit. Neto (L)": Number(l.precio_neto_unitario.toFixed(2)),
+      "Subtotal Neto (L)": Number(((l.cantidad ?? 0) * l.precio_neto_unitario).toFixed(2)),
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     ws["!cols"] = [
       { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 18 },
-      { wch: 12 }, { wch: 28 }, { wch: 14 }, { wch: 8 }, { wch: 16 }, { wch: 18 },
+      { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 28 }, { wch: 14 },
+      { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 18 },
     ]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Historial por Línea")
@@ -521,6 +525,21 @@ export default function HistorialVentasPage() {
             Otro
           </Badge>
         )
+    }
+  }
+
+  const getMetodoBadgeLinea = (metodo: string) => {
+    switch (metodo) {
+      case "Efectivo":
+        return <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 gap-1 font-normal text-xs"><Wallet className="h-3 w-3" />Efectivo</Badge>
+      case "Banco":
+        return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border border-blue-200 gap-1 font-normal text-xs"><Banknote className="h-3 w-3" />Banco</Badge>
+      case "Mixto":
+        return <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100 border border-purple-200 gap-1 font-normal text-xs"><Shuffle className="h-3 w-3" />Mixto</Badge>
+      case "Credito":
+        return <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border border-amber-200 gap-1 font-normal text-xs"><CreditCard className="h-3 w-3" />Crédito</Badge>
+      default:
+        return <Badge variant="outline" className="font-normal text-xs">Otro</Badge>
     }
   }
 
@@ -714,45 +733,62 @@ export default function HistorialVentasPage() {
           <div className="block md:hidden space-y-3">
             {lineasFiltradas.length === 0 ? (
               <Card className="p-8 text-center text-muted-foreground rounded-2xl">No hay líneas de venta registradas</Card>
-            ) : lineasFiltradas.map(linea => (
-              <Card key={linea.detalle_id} className="rounded-2xl shadow-sm border border-stone-200">
-                <div className="p-4">
-                  <div className="flex justify-between items-start mb-1">
-                    <div>
-                      <p className="font-mono font-medium text-primary text-sm">{linea.numero_factura}</p>
-                      <p className="text-xs text-muted-foreground">{linea.fecha_venta?.split('T')[0] || ''}</p>
+            ) : lineasFiltradas.map(linea => {
+              const tieneComision = linea.comision_porcentaje > 0
+              const subtotalNeto = (linea.cantidad ?? 0) * linea.precio_neto_unitario
+              return (
+                <Card key={linea.detalle_id} className="rounded-2xl shadow-sm border border-stone-200">
+                  <div className="p-4">
+                    <div className="flex justify-between items-start mb-1">
+                      <div>
+                        <p className="font-mono font-medium text-primary text-sm">{linea.numero_factura}</p>
+                        <p className="text-xs text-muted-foreground">{linea.fecha_venta?.split('T')[0] || ''}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        {getEstadoBadge(linea.estado_pago)}
+                        {getMetodoBadgeLinea(linea.metodo_pago)}
+                      </div>
                     </div>
-                    {getEstadoBadge(linea.estado_pago)}
+                    {linea.emprendimiento_nombre && (
+                      <p className="text-xs font-semibold text-amber-700 bg-amber-50 rounded px-1.5 py-0.5 inline-block mb-1">
+                        {linea.emprendimiento_nombre}
+                      </p>
+                    )}
+                    <p className="text-sm font-medium text-stone-800 truncate">{linea.producto_nombre}</p>
+                    <p className="text-xs text-stone-500 truncate mb-2">{linea.cliente_nombre}</p>
+                    <div className="flex justify-between items-center">
+                      <div>
+                        {tieneComision ? (
+                          <>
+                            <p className="text-xs text-stone-400 line-through">{linea.cantidad} × L {(linea.precio_unitario ?? 0).toFixed(2)}</p>
+                            <p className="text-xs text-blue-600">−{linea.comision_porcentaje.toFixed(2)}% comisión banco</p>
+                            <p className="font-bold text-base">L {subtotalNeto.toFixed(2)}</p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-xs text-stone-500">{linea.cantidad} × L {(linea.precio_unitario ?? 0).toFixed(2)}</p>
+                            <p className="font-bold text-base">L {subtotalNeto.toFixed(2)}</p>
+                          </>
+                        )}
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <Button variant="ghost" size="icon" className="h-8 w-8"
+                          onClick={() => { const v = ventas.find(x => x.id === linea.venta_id); if (v) generatePdf(v) }}
+                          title="Descargar PDF de la factura">
+                          <Download className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon"
+                          className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => setLineaAEliminar(linea)}
+                          title="Eliminar esta línea">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                  {linea.emprendimiento_nombre && (
-                    <p className="text-xs font-semibold text-amber-700 bg-amber-50 rounded px-1.5 py-0.5 inline-block mb-1">
-                      {linea.emprendimiento_nombre}
-                    </p>
-                  )}
-                  <p className="text-sm font-medium text-stone-800 truncate">{linea.producto_nombre}</p>
-                  <p className="text-xs text-stone-500 truncate mb-2">{linea.cliente_nombre}</p>
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="text-xs text-stone-500">{linea.cantidad} × L {(linea.precio_unitario ?? 0).toFixed(2)}</p>
-                      <p className="font-bold text-base">L {((linea.cantidad ?? 0) * (linea.precio_unitario ?? 0)).toFixed(2)}</p>
-                    </div>
-                    <div className="flex gap-1 shrink-0">
-                      <Button variant="ghost" size="icon" className="h-8 w-8"
-                        onClick={() => { const v = ventas.find(x => x.id === linea.venta_id); if (v) generatePdf(v) }}
-                        title="Descargar PDF de la factura">
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon"
-                        className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                        onClick={() => setLineaAEliminar(linea)}
-                        title="Eliminar esta línea">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              )
+            })}
           </div>
 
           {/* Desktop */}
@@ -766,9 +802,10 @@ export default function HistorialVentasPage() {
                     <TableHead className="font-semibold text-stone-700">N° Factura</TableHead>
                     <TableHead className="font-semibold text-stone-700">Cliente</TableHead>
                     <TableHead className="font-semibold text-stone-700">Producto</TableHead>
+                    <TableHead className="font-semibold text-stone-700">Método</TableHead>
                     <TableHead className="font-semibold text-stone-700 text-right">Cant.</TableHead>
-                    <TableHead className="font-semibold text-stone-700 text-right">Precio Unit.</TableHead>
-                    <TableHead className="font-semibold text-stone-700 text-right">Subtotal</TableHead>
+                    <TableHead className="font-semibold text-stone-700 text-right">Precio Unit. (neto)</TableHead>
+                    <TableHead className="font-semibold text-stone-700 text-right">Subtotal neto</TableHead>
                     <TableHead className="font-semibold text-stone-700">Estado</TableHead>
                     <TableHead className="font-semibold text-stone-700 text-right">Acciones</TableHead>
                   </TableRow>
@@ -776,42 +813,59 @@ export default function HistorialVentasPage() {
                 <TableBody>
                   {lineasFiltradas.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center text-muted-foreground py-10">
+                      <TableCell colSpan={11} className="text-center text-muted-foreground py-10">
                         No hay líneas de venta para mostrar
                       </TableCell>
                     </TableRow>
-                  ) : lineasFiltradas.map(linea => (
-                    <TableRow key={linea.detalle_id} className="hover:bg-stone-50/50">
-                      <TableCell>
-                        {linea.emprendimiento_nombre
-                          ? <span className="font-medium text-amber-700">{linea.emprendimiento_nombre}</span>
-                          : <span className="text-stone-400">—</span>}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-stone-600">{linea.fecha_venta?.split('T')[0] || ''}</TableCell>
-                      <TableCell className="font-mono font-medium whitespace-nowrap">{linea.numero_factura}</TableCell>
-                      <TableCell className="text-stone-600">{linea.cliente_nombre}</TableCell>
-                      <TableCell className="font-medium text-stone-800">{linea.producto_nombre}</TableCell>
-                      <TableCell className="text-right text-stone-600">{linea.cantidad}</TableCell>
-                      <TableCell className="text-right text-stone-600 whitespace-nowrap">L {(linea.precio_unitario ?? 0).toFixed(2)}</TableCell>
-                      <TableCell className="text-right font-medium whitespace-nowrap">L {((linea.cantidad ?? 0) * (linea.precio_unitario ?? 0)).toFixed(2)}</TableCell>
-                      <TableCell>{getEstadoBadge(linea.estado_pago)}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon"
-                            onClick={() => { const v = ventas.find(x => x.id === linea.venta_id); if (v) generatePdf(v) }}
-                            title="Descargar PDF de la factura">
-                            <Download className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon"
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            onClick={() => setLineaAEliminar(linea)}
-                            title="Eliminar esta línea">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  ) : lineasFiltradas.map(linea => {
+                    const tieneComision = linea.comision_porcentaje > 0
+                    const subtotalNeto = (linea.cantidad ?? 0) * linea.precio_neto_unitario
+                    return (
+                      <TableRow key={linea.detalle_id} className="hover:bg-stone-50/50">
+                        <TableCell>
+                          {linea.emprendimiento_nombre
+                            ? <span className="font-medium text-amber-700">{linea.emprendimiento_nombre}</span>
+                            : <span className="text-stone-400">—</span>}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-stone-600">{linea.fecha_venta?.split('T')[0] || ''}</TableCell>
+                        <TableCell className="font-mono font-medium whitespace-nowrap">{linea.numero_factura}</TableCell>
+                        <TableCell className="text-stone-600">{linea.cliente_nombre}</TableCell>
+                        <TableCell className="font-medium text-stone-800">{linea.producto_nombre}</TableCell>
+                        <TableCell>{getMetodoBadgeLinea(linea.metodo_pago)}</TableCell>
+                        <TableCell className="text-right text-stone-600">{linea.cantidad}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap">
+                          {tieneComision ? (
+                            <div className="flex flex-col items-end leading-tight">
+                              <span className="font-medium">L {linea.precio_neto_unitario.toFixed(2)}</span>
+                              <span className="text-xs text-blue-600">−{linea.comision_porcentaje.toFixed(2)}%</span>
+                              <span className="text-xs text-stone-400 line-through">L {(linea.precio_unitario ?? 0).toFixed(2)}</span>
+                            </div>
+                          ) : (
+                            <span className="text-stone-600">L {(linea.precio_unitario ?? 0).toFixed(2)}</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-medium whitespace-nowrap">
+                          L {subtotalNeto.toFixed(2)}
+                        </TableCell>
+                        <TableCell>{getEstadoBadge(linea.estado_pago)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="icon"
+                              onClick={() => { const v = ventas.find(x => x.id === linea.venta_id); if (v) generatePdf(v) }}
+                              title="Descargar PDF de la factura">
+                              <Download className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => setLineaAEliminar(linea)}
+                              title="Eliminar esta línea">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
             </CardContent>

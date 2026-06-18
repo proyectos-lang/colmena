@@ -252,6 +252,12 @@ export interface LineaVenta {
   emprendimiento_nombre: string | null
   cantidad: number
   precio_unitario: number
+  /** Método de pago agregado de la venta (Efectivo/Banco/Mixto/Credito/Otro) */
+  metodo_pago: string
+  /** Comisión bancaria efectiva de la venta en %, ya ponderada si es Mixto */
+  comision_porcentaje: number
+  /** precio_unitario × (1 - comision_porcentaje/100) */
+  precio_neto_unitario: number
 }
 
 export async function getDetalleAnalitico(
@@ -326,6 +332,7 @@ export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: str
   const supabase = createClient()
   if (!supabase) return { data: [], error: 'Cliente no disponible' }
   try {
+    // 1. Fetch detail lines with sale header and product joins
     const { data, error } = await supabase
       .from('ventas_detalle')
       .select(`
@@ -353,9 +360,52 @@ export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: str
 
     if (error) return { data: [], error: error.message }
 
-    const formattedData: LineaVenta[] = (data ?? []).map((d: any) => {
+    const rows = data ?? []
+
+    // 2. Batch-fetch payment info (method + commission) per venta_id
+    type PagoInfo = { metodo: string; comision_pct: number }
+    const pagosMap = new Map<number, PagoInfo>()
+
+    const ventaIds = [...new Set(rows.map((d: any) => d.venta_id as number))]
+    if (ventaIds.length > 0) {
+      const { data: pagosData } = await supabase
+        .from('ventas_pagos_detalle')
+        .select('venta_id, metodo_pago, monto_bruto, monto_neto')
+        .in('venta_id', ventaIds)
+
+      if (pagosData && pagosData.length > 0) {
+        type PRow = { venta_id: number; metodo_pago: string; monto_bruto: number | null; monto_neto: number | null }
+        const grouped = new Map<number, PRow[]>()
+        for (const p of pagosData as PRow[]) {
+          const arr = grouped.get(p.venta_id) ?? []
+          arr.push(p)
+          grouped.set(p.venta_id, arr)
+        }
+        for (const [ventaId, pagos] of grouped) {
+          const sumBruto = pagos.reduce((s, p) => s + (Number(p.monto_bruto) || 0), 0)
+          const sumNeto  = pagos.reduce((s, p) => s + (Number(p.monto_neto)  || 0), 0)
+          const comision_pct = sumBruto > 0 ? ((sumBruto - sumNeto) / sumBruto) * 100 : 0
+          const methods = new Set(pagos.map(p => p.metodo_pago))
+          const tieneEfectivo = methods.has('Efectivo')
+          const tieneBanco    = methods.has('Banco') || methods.has('Link_Pago')
+          const tieneCredito  = methods.has('Credito')
+          let metodo: string
+          if (tieneEfectivo && tieneBanco) metodo = 'Mixto'
+          else if (tieneEfectivo) metodo = 'Efectivo'
+          else if (tieneBanco)    metodo = 'Banco'
+          else if (tieneCredito)  metodo = 'Credito'
+          else metodo = 'Otro'
+          pagosMap.set(ventaId, { metodo, comision_pct: +comision_pct.toFixed(4) })
+        }
+      }
+    }
+
+    const formattedData: LineaVenta[] = rows.map((d: any) => {
       const ve = d.ventas_encabezado
-      const p = d.productos
+      const p  = d.productos
+      const pago = pagosMap.get(d.venta_id) ?? { metodo: 'Efectivo', comision_pct: 0 }
+      const precio_unitario = d.precio_unitario ?? 0
+      const precio_neto_unitario = +(precio_unitario * (1 - pago.comision_pct / 100)).toFixed(4)
       return {
         detalle_id: d.id,
         venta_id: d.venta_id,
@@ -371,7 +421,10 @@ export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: str
         codigo_barras: p?.codigo_barras ?? '',
         emprendimiento_nombre: p?.emprendimientos?.nombre ?? null,
         cantidad: d.cantidad ?? 0,
-        precio_unitario: d.precio_unitario ?? 0,
+        precio_unitario,
+        metodo_pago: pago.metodo,
+        comision_porcentaje: pago.comision_pct,
+        precio_neto_unitario,
       }
     })
 
