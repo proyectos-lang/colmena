@@ -15,6 +15,7 @@ import * as React from "react"
 import Link from "next/link"
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
+import { getHondurasNowISO, formatHondurasDateTime } from "@/lib/utils/honduras-time"
 import {
   ClipboardCheck,
   CalendarIcon,
@@ -379,6 +380,179 @@ export default function CierreDiarioPage() {
     }
   }
 
+  // ---- Impresión en tirilla (80 mm, impresora térmica) -------------------
+  async function imprimirTirilla() {
+    if (!data) return
+    try {
+      const rs = await getRazonSocialForPdf().catch(() => null)
+
+      // Timestamp de impresión en hora Honduras
+      const ahoraHN    = getHondurasNowISO()
+      const printStamp = formatHondurasDateTime(ahoraHN) // "DD/MM/YYYY HH:MM"
+
+      // Totales
+      const r = data.resumen
+      // Total bruto por cuenta bancaria (ingresos de cuenta_movimientos)
+      const totalBancos = data.bancos.reduce((s, b) => s + b.total_ingresos, 0)
+      // Efectivo = total ventas - ventas bancarias - crédito (residual)
+      const efectivo = Math.max(0, r.total_ventas - totalBancos - r.credito_total)
+      const hayCredito = r.credito_total > 0
+
+      // === Cálculo dinámico de la altura de la página ===
+      const nBancos    = data.bancos.length
+      const hasRTN     = !!(rs?.documento?.trim())
+      const hasAddress = !!(rs?.direccion?.trim())
+      const hasPhone   = !!(rs?.telefono?.trim())
+      const hasCorreo  = !!(rs?.correo?.trim())
+
+      let h = 6                                // margen superior
+      h += 7                                   // nombre empresa
+      if (hasRTN)     h += 4.5
+      if (hasAddress) h += 5                   // dirección (1 línea estimada)
+      if (hasPhone)   h += 4
+      if (hasCorreo)  h += 4
+      h += 5                                   // separador + espacio
+      h += 6                                   // "CIERRE DIARIO"
+      h += 5                                   // fecha larga
+      h += 4.5                                 // "Impreso: ..."
+      h += 6                                   // separador + espacio
+      h += 6                                   // título sección bancos
+      h += (nBancos === 0 ? 6 : nBancos * 6)  // líneas por banco
+      h += 3                                   // separador fino
+      h += 6                                   // efectivo
+      if (hayCredito) h += 6                   // crédito
+      h += 5                                   // separador grueso
+      h += 8                                   // TOTAL VENTAS
+      h += 5                                   // separador + tickets
+      h += 6                                   // count facturas
+      h += 10                                  // margen inferior
+
+      const W      = 80
+      const margin = 4
+      const center = W / 2
+      const right  = W - margin
+
+      const doc = new jsPDF({ unit: "mm", format: [W, Math.max(120, h)] })
+      let y = 6
+
+      const lnLeft  = (txt: string, yy: number, sz: number, bold = false) => {
+        doc.setFontSize(sz)
+        doc.setFont("helvetica", bold ? "bold" : "normal")
+        doc.text(txt, margin, yy)
+      }
+      const lnRight = (txt: string, yy: number, sz: number, bold = false) => {
+        doc.setFontSize(sz)
+        doc.setFont("helvetica", bold ? "bold" : "normal")
+        doc.text(txt, right, yy, { align: "right" })
+      }
+      const lnCenter = (txt: string, yy: number, sz: number, bold = false) => {
+        doc.setFontSize(sz)
+        doc.setFont("helvetica", bold ? "bold" : "normal")
+        doc.text(txt, center, yy, { align: "center" })
+      }
+      const sep = (yy: number, thick = false) => {
+        doc.setDrawColor(0)
+        doc.setLineWidth(thick ? 0.5 : 0.2)
+        doc.line(margin, yy, right, yy)
+      }
+
+      // ── Encabezado empresa ──────────────────────────────────────────────
+      doc.setTextColor(0, 0, 0)
+      lnCenter(rs?.nombre_empresa || rs?.nombre_comercial || "Empresa", y, 10, true)
+      y += 6
+
+      if (hasRTN) {
+        lnCenter(`RTN: ${rs!.documento}`, y, 7)
+        y += 4.5
+      }
+      if (hasAddress) {
+        const lines = doc.splitTextToSize(rs!.direccion!, W - margin * 2) as string[]
+        lines.forEach((ln) => { lnCenter(ln, y, 6); y += 3.8 })
+      }
+      if (hasPhone) {
+        lnCenter(`Tel: ${rs!.telefono}`, y, 6)
+        y += 4
+      }
+      if (hasCorreo) {
+        lnCenter(rs!.correo!, y, 6)
+        y += 4
+      }
+
+      y += 1
+      sep(y)
+      y += 5
+
+      // ── Título cierre ───────────────────────────────────────────────────
+      lnCenter("CIERRE DIARIO", y, 10, true)
+      y += 6
+      lnCenter(formatFechaLarga(fecha).toUpperCase(), y, 7)
+      y += 5
+      lnCenter(`Impreso: ${printStamp}`, y, 6)
+      y += 4.5
+
+      sep(y)
+      y += 6
+
+      // ── Ventas por cuenta bancaria ──────────────────────────────────────
+      lnCenter("VENTAS POR CUENTA BANCARIA", y, 8, true)
+      y += 6
+
+      if (data.bancos.length === 0) {
+        lnCenter("Sin movimientos bancarios", y, 7)
+        y += 6
+      } else {
+        data.bancos.forEach((b) => {
+          lnLeft(b.banco,                          y, 8)
+          lnRight(formatCurrency(b.total_ingresos), y, 8)
+          y += 6
+        })
+      }
+
+      // ── Efectivo (residual) ─────────────────────────────────────────────
+      doc.setDrawColor(150)
+      doc.setLineWidth(0.2)
+      doc.line(margin, y, right, y)
+      doc.setDrawColor(0)
+      y += 4
+
+      lnLeft("Efectivo",              y, 8, true)
+      lnRight(formatCurrency(efectivo), y, 8, true)
+      y += 6
+
+      if (hayCredito) {
+        lnLeft("Crédito",                    y, 8)
+        lnRight(formatCurrency(r.credito_total), y, 8)
+        y += 6
+      }
+
+      // ── Total ventas ────────────────────────────────────────────────────
+      sep(y, true)
+      y += 5
+
+      lnLeft("TOTAL VENTAS",               y, 10, true)
+      lnRight(formatCurrency(r.total_ventas), y, 10, true)
+      y += 8
+
+      // ── Pie ─────────────────────────────────────────────────────────────
+      sep(y)
+      y += 5
+      lnCenter(
+        `${r.cantidad_tickets} factura${r.cantidad_tickets === 1 ? "" : "s"} registrada${r.cantidad_tickets === 1 ? "" : "s"}`,
+        y, 6
+      )
+
+      doc.save(`tirilla-cierre-${fecha}.pdf`)
+      toast({ title: "Tirilla generada", description: `tirilla-cierre-${fecha}.pdf` })
+    } catch (err) {
+      console.error("[cierre-diario] error tirilla:", err)
+      toast({
+        title: "Error al generar tirilla",
+        description: "No se pudo crear el reporte.",
+        variant: "destructive",
+      })
+    }
+  }
+
   // ==================== RENDER ====================
 
   return (
@@ -422,6 +596,17 @@ export default function CierreDiarioPage() {
           >
             <RefreshCw className={`mr-1 h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
             Refrescar
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={imprimirTirilla}
+            disabled={!data || loading}
+            className="h-9 border-stone-300"
+          >
+            <Receipt className="mr-1 h-4 w-4" />
+            Tirilla
           </Button>
 
           <Button
