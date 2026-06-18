@@ -353,6 +353,7 @@ export default function HistorialVentasPage() {
       "Almacén": l.almacen_nombre ?? "",
       "Estado": l.estado_pago ?? "",
       "Comisión Bancaria (%)": l.comisionbanc != null ? Number(l.comisionbanc) : 0,
+      "Descuento (%)": l.descuento ?? 0,
       "Producto": l.producto_nombre ?? "",
       "Código": l.codigo_barras ?? "",
       "Cantidad": l.cantidad ?? 0,
@@ -459,17 +460,28 @@ export default function HistorialVentasPage() {
       itemY += 12
     })
     const tY = Math.max(itemY + 15, 180)
+    const descPctHist = Number(venta.descuento ?? 0)
+    const descMontoHist = (venta.subtotal ?? 0) * (descPctHist / 100)
     doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.setTextColor(100, 100, 100)
     doc.text("Subtotal", pageWidth - 80, tY); doc.setTextColor(30, 30, 30)
     doc.text(`L ${(venta.subtotal ?? 0).toFixed(2)}`, pageWidth - 20, tY, { align: "right" })
+    let tOff = 12
+    if (descPctHist > 0) {
+      doc.setTextColor(100, 100, 100)
+      const pctLbl = descPctHist % 1 === 0 ? `${descPctHist.toFixed(0)}%` : `${descPctHist.toFixed(2)}%`
+      doc.text(`Descuento (${pctLbl})`, pageWidth - 80, tY + tOff)
+      doc.setTextColor(30, 30, 30)
+      doc.text(`- L ${descMontoHist.toFixed(2)}`, pageWidth - 20, tY + tOff, { align: "right" })
+      tOff += 12
+    }
     doc.setTextColor(100, 100, 100)
-    doc.text(`ISV (${venta.porcentaje_impuesto || 15}%)`, pageWidth - 80, tY + 12)
+    doc.text(`ISV (${venta.porcentaje_impuesto || 15}%)`, pageWidth - 80, tY + tOff)
     doc.setTextColor(30, 30, 30)
-    doc.text(`L ${(venta.impuesto_total ?? 0).toFixed(2)}`, pageWidth - 20, tY + 12, { align: "right" })
+    doc.text(`L ${(venta.impuesto_total ?? 0).toFixed(2)}`, pageWidth - 20, tY + tOff, { align: "right" })
     doc.setFont("helvetica", "bold"); doc.setTextColor(30, 30, 30)
-    doc.text("Total", pageWidth - 80, tY + 26)
+    doc.text("Total", pageWidth - 80, tY + tOff + 14)
     doc.setFontSize(12)
-    doc.text(`L ${(venta.total_venta ?? 0).toFixed(2)}`, pageWidth - 20, tY + 26, { align: "right" })
+    doc.text(`L ${(venta.total_venta ?? 0).toFixed(2)}`, pageWidth - 20, tY + tOff + 14, { align: "right" })
     const fY = pageHeight - 40
     doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.5); doc.setLineDashPattern([], 0)
     doc.line(20, fY - 10, pageWidth - 20, fY - 10)
@@ -752,6 +764,11 @@ export default function HistorialVentasPage() {
                         ) : (
                           <span className="text-xs text-stone-400">Sin comisión</span>
                         )}
+                        {(linea.descuento ?? 0) > 0 && (
+                          <span className="text-xs font-medium text-orange-600 bg-orange-50 rounded px-1.5 py-0.5">
+                            Desc. {linea.descuento}%
+                          </span>
+                        )}
                       </div>
                     </div>
                     {linea.emprendimiento_nombre && (
@@ -822,6 +839,7 @@ export default function HistorialVentasPage() {
                         <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Cliente</TableHead>
                         <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Producto</TableHead>
                         <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10 text-right">Com. Bancaria</TableHead>
+                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Descuento</TableHead>
                         <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Cant.</TableHead>
                         <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Precio Unit. (neto)</TableHead>
                         <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Subtotal neto</TableHead>
@@ -832,7 +850,7 @@ export default function HistorialVentasPage() {
                     <TableBody>
                       {lineasFiltradas.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={11} className="text-center text-muted-foreground py-10">
+                          <TableCell colSpan={12} className="text-center text-muted-foreground py-10">
                             No hay líneas de venta para mostrar
                           </TableCell>
                         </TableRow>
@@ -854,6 +872,15 @@ export default function HistorialVentasPage() {
                               {linea.comisionbanc != null && linea.comisionbanc > 0 ? (
                                 <span className="text-xs font-medium text-blue-700 bg-blue-50 rounded px-1.5 py-0.5">
                                   {linea.comisionbanc}%
+                                </span>
+                              ) : (
+                                <span className="text-xs text-stone-400">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right whitespace-nowrap">
+                              {(linea.descuento ?? 0) > 0 ? (
+                                <span className="text-xs font-medium text-orange-600 bg-orange-50 rounded px-1.5 py-0.5">
+                                  {linea.descuento}%
                                 </span>
                               ) : (
                                 <span className="text-xs text-stone-400">—</span>

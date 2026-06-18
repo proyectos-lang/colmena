@@ -645,6 +645,12 @@ export default function NuevaVentaPage() {
   const total = subtotalNeto
   const totalItems = lineas.reduce((acc, l) => acc + l.cantidad, 0)
 
+  // Cambio para pago en efectivo: cuando TODOS los métodos son Efectivo se
+  // permite que el monto ingresado exceda el total y se calcula el vuelto.
+  const todoEfectivo = pagosDetalle.length > 0 && pagosDetalle.every(p => p.metodo_pago === "Efectivo")
+  const sumaBrutoRaw = +pagosDetalle.reduce((a, p) => a + (Number(p.monto_bruto) || 0), 0).toFixed(2)
+  const cambioEfectivo = todoEfectivo ? Math.max(0, +(sumaBrutoRaw - total).toFixed(2)) : 0
+
   // --- Comisiones bancarias y total NETO -----------------------------------
   // Cuando una linea de pago tiene `porcentaje_comision` > 0 (tarjetas,
   // link de pago, etc.), el banco retiene esa comision: el cliente paga el
@@ -784,7 +790,7 @@ export default function NuevaVentaPage() {
       }
     }
 
-    if (sumaPagosRound > +total.toFixed(2)) {
+    if (sumaPagosRound > +total.toFixed(2) && !todoEfectivo) {
       toast({
         title: "Sobrepago no permitido",
         description: `La suma de pagos (L ${sumaPagosRound.toFixed(2)}) excede el total de la venta (L ${total.toFixed(2)})`,
@@ -846,13 +852,24 @@ export default function NuevaVentaPage() {
         utilidad_linea: l.utilidad_linea
       }))
 
+      // Para efectivo con cambio: guardamos el monto real cobrado (≤ total),
+      // no el efectivo entregado por el cliente. El cambio es solo informativo.
+      let pagosParaDB = pagosDetalle.map(({ _id: _omit, ...rest }) => rest)
+      if (todoEfectivo && sumaBrutoRaw > +total.toFixed(2)) {
+        let remaining = +total.toFixed(2)
+        pagosParaDB = pagosParaDB.map(p => {
+          const cap = +(Math.min(Number(p.monto_bruto) || 0, remaining)).toFixed(2)
+          remaining = +(remaining - cap).toFixed(2)
+          return { ...p, monto_bruto: cap }
+        })
+      }
+
       const { data, error } = await crearVenta({
         encabezado,
         detalles,
         almacen_id: parseInt(almacenId),
         localizacion_id: parseInt(localizacionId),
-        // Convertimos las lineas locales (con _id) al payload del servicio.
-        pagos_detalle: pagosDetalle.map(({ _id: _omit, ...rest }) => rest),
+        pagos_detalle: pagosParaDB,
       })
 
       if (error) {
@@ -1083,7 +1100,21 @@ export default function NuevaVentaPage() {
     doc.text("Total", pageWidth - 80, totalsY + rowOffset + 14)
     doc.setFontSize(12)
     doc.text(`L ${totalFactura.toFixed(2)}`, pageWidth - 20, totalsY + rowOffset + 14, { align: "right" })
-    
+
+    // Cambio (solo cuando el pago es 100% efectivo y supera el total)
+    const sumaPagosRecibidos = pagosDetalle.reduce((s, p) => s + (Number(p.monto_bruto) || 0), 0)
+    const todoEfectivoPdf = pagosDetalle.length > 0 && pagosDetalle.every(p => p.metodo_pago === "Efectivo")
+    const cambioA4 = todoEfectivoPdf ? Math.max(0, +(sumaPagosRecibidos - totalFactura).toFixed(2)) : 0
+    if (cambioA4 > 0) {
+      rowOffset += 12
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(10)
+      doc.setTextColor(100, 100, 100)
+      doc.text("Cambio", pageWidth - 80, totalsY + rowOffset + 14)
+      doc.setTextColor(30, 130, 30)
+      doc.text(`L ${cambioA4.toFixed(2)}`, pageWidth - 20, totalsY + rowOffset + 14, { align: "right" })
+    }
+
     // === FOOTER Section ===
     const footerY = pageHeight - 40
     
@@ -1702,6 +1733,13 @@ export default function NuevaVentaPage() {
                   .toFixed(2)
                 const totalBrutoR = +total.toFixed(2)
                 if (sumBrutoR > totalBrutoR) {
+                  if (todoEfectivo) {
+                    return (
+                      <p className="text-emerald-700 font-semibold">
+                        Cambio: L {cambioEfectivo.toFixed(2)}
+                      </p>
+                    )
+                  }
                   return (
                     <p className="text-destructive font-medium">
                       Sobrepago: L {(sumBrutoR - totalBrutoR).toFixed(2)} excede el total
@@ -1790,13 +1828,12 @@ export default function NuevaVentaPage() {
                         !almacenId ||
                         !localizacionId ||
                         hayStockInsuficiente ||
-                        // Desglose: rechazamos sobrepago. Otras validaciones
-                        // (cuenta requerida, caja cerrada, monto <=0 por linea)
-                        // se muestran como toasts en handleSubmit.
-                        pagosDetalle.reduce(
+                        // Sobrepago solo bloquea cuando NO es todo efectivo.
+                        // Para efectivo puro se calcula el cambio y se permite.
+                        (!todoEfectivo && pagosDetalle.reduce(
                           (a, p) => a + (Number(p.monto_bruto) || 0),
                           0
-                        ) > +total.toFixed(2)
+                        ) > +total.toFixed(2))
                       }
                     >
                       {saving ? (

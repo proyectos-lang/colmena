@@ -259,6 +259,8 @@ export interface LineaVenta {
   emprendimiento_nombre: string | null
   cantidad: number
   precio_unitario: number
+  /** Porcentaje de descuento aplicado a la factura (0 si no hubo descuento) */
+  descuento: number
   /** Método de pago agregado de la venta (Efectivo/Banco/Mixto/Credito/Otro) */
   metodo_pago: string
   /** Valor directo del campo comisionbanc en ventas_encabezado (null si columna no existe aún) */
@@ -359,6 +361,7 @@ export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: str
           total_venta,
           valorpago,
           comisionbanc,
+          descuento,
           clientes ( nombre ),
           almacenes ( nombre )
         ),
@@ -457,6 +460,7 @@ export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: str
         emprendimiento_nombre: p?.emprendimientos?.nombre ?? null,
         cantidad: d.cantidad ?? 0,
         precio_unitario,
+        descuento: Number(ve?.descuento ?? 0),
         metodo_pago: pago.metodo,
         comisionbanc: comisionbanc,
         comision_porcentaje,
@@ -2047,6 +2051,8 @@ export interface VentaEmprendedor {
   precio_unitario: number
   subtotal: number      // cantidad × precio_unitario
   subtotal_neto: number // igual a subtotal — no se aplica factor adicional
+  /** Porcentaje de descuento aplicado a la factura (0 si no hubo descuento) */
+  descuento: number
   numero_factura: string
 }
 
@@ -2065,7 +2071,7 @@ export async function getVentasByEmprendimiento(
         cantidad,
         precio_unitario,
         productos!inner(id, nombre, codigo_barras, emprendimiento_id),
-        ventas_encabezado!inner(fecha_venta, numero_factura)
+        ventas_encabezado!inner(fecha_venta, numero_factura, descuento)
       `)
       .eq('productos.emprendimiento_id', emprendimientoId)
       .gte('ventas_encabezado.fecha_venta', desde)
@@ -2091,6 +2097,7 @@ export async function getVentasByEmprendimiento(
         precio_unitario: row.precio_unitario ?? 0,
         subtotal: productoSubtotal,
         subtotal_neto: productoSubtotal,
+        descuento: Number(encabezado?.descuento ?? 0),
         numero_factura: encabezado?.numero_factura ?? '',
       }
     })

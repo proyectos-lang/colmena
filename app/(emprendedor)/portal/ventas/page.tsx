@@ -151,6 +151,7 @@ export default function VentasEmprendedorPage() {
       "Código de Barras": v.codigo_barras,
       Cantidad: v.cantidad,
       "Precio Unitario": v.precio_unitario,
+      "Descuento (%)": v.descuento ?? 0,
       Subtotal: v.subtotal_neto,
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
@@ -339,13 +340,14 @@ export default function VentasEmprendedorPage() {
                     <TableHead className="text-stone-500">Código</TableHead>
                     <TableHead className="text-right text-stone-500">Cant.</TableHead>
                     <TableHead className="text-right text-stone-500">Precio unit.</TableHead>
+                    <TableHead className="text-right text-stone-500">Descuento</TableHead>
                     <TableHead className="text-right text-stone-500">Subtotal</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {ventasPagina.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-stone-400 py-10">
+                      <TableCell colSpan={8} className="text-center text-stone-400 py-10">
                         {busqueda ? "Sin resultados para la búsqueda" : "Sin ventas en el período seleccionado"}
                       </TableCell>
                     </TableRow>
@@ -360,6 +362,15 @@ export default function VentasEmprendedorPage() {
                         <TableCell className="font-mono text-xs text-stone-500">{v.codigo_barras || "—"}</TableCell>
                         <TableCell className="text-right text-stone-600">{v.cantidad}</TableCell>
                         <TableCell className="text-right text-stone-600 whitespace-nowrap">{fmoney(v.precio_unitario)}</TableCell>
+                        <TableCell className="text-right whitespace-nowrap">
+                          {(v.descuento ?? 0) > 0 ? (
+                            <span className="text-xs font-medium text-orange-600 bg-orange-50 rounded px-1.5 py-0.5">
+                              {v.descuento}%
+                            </span>
+                          ) : (
+                            <span className="text-xs text-stone-400">—</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right font-semibold text-stone-800 whitespace-nowrap">{fmoney(v.subtotal_neto)}</TableCell>
                       </TableRow>
                     ))
