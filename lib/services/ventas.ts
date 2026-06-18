@@ -28,6 +28,12 @@ export interface VentaEncabezado {
    * saldo_pendiente = total_venta - valorpago
    */
   valorpago?: number
+  /**
+   * Porcentaje de comision bancaria efectiva aplicado a esta venta (0..100).
+   * Ejemplo: 3.5 significa 3.5%. Cuando es > 0, los precio_unitario en
+   * ventas_detalle ya estan guardados como precio_bruto × (1 - comisionbanc/100).
+   */
+  comisionbanc?: number | null
 }
 
 export interface VentaDetalle {
@@ -256,7 +262,9 @@ export interface LineaVenta {
   metodo_pago: string
   /** Comisión bancaria efectiva de la venta en %, ya ponderada si es Mixto */
   comision_porcentaje: number
-  /** precio_unitario × (1 - comision_porcentaje/100) */
+  /** Precio original antes de comisión (lo que el cliente paga) */
+  precio_bruto_unitario: number
+  /** Precio neto que recibe el negocio tras descontar comisión bancaria */
   precio_neto_unitario: number
 }
 
@@ -347,6 +355,7 @@ export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: str
           estado_pago,
           total_venta,
           valorpago,
+          comisionbanc,
           clientes ( nombre ),
           almacenes ( nombre )
         ),
@@ -401,11 +410,34 @@ export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: str
     }
 
     const formattedData: LineaVenta[] = rows.map((d: any) => {
-      const ve = d.ventas_encabezado
-      const p  = d.productos
+      const ve  = d.ventas_encabezado
+      const p   = d.productos
       const pago = pagosMap.get(d.venta_id) ?? { metodo: 'Efectivo', comision_pct: 0 }
       const precio_unitario = d.precio_unitario ?? 0
-      const precio_neto_unitario = +(precio_unitario * (1 - pago.comision_pct / 100)).toFixed(4)
+
+      // comisionbanc > 0 → venta nueva: precio_unitario ya es NETO en la DB
+      // comisionbanc = 0/null → venta antigua: precio_unitario es BRUTO en la DB
+      const comisionbanc: number | null = ve?.comisionbanc ?? null
+      const esVentaNueva = comisionbanc != null && comisionbanc > 0
+
+      let comision_porcentaje: number
+      let precio_bruto_unitario: number
+      let precio_neto_unitario: number
+
+      if (esVentaNueva) {
+        // precio_unitario en DB es neto; recuperamos bruto para mostrar
+        comision_porcentaje = comisionbanc
+        precio_neto_unitario = precio_unitario
+        precio_bruto_unitario = comisionbanc < 100
+          ? +(precio_unitario / (1 - comisionbanc / 100)).toFixed(4)
+          : precio_unitario
+      } else {
+        // precio_unitario en DB es bruto; calculamos neto desde ventas_pagos_detalle
+        comision_porcentaje = pago.comision_pct
+        precio_bruto_unitario = precio_unitario
+        precio_neto_unitario = +(precio_unitario * (1 - pago.comision_pct / 100)).toFixed(4)
+      }
+
       return {
         detalle_id: d.id,
         venta_id: d.venta_id,
@@ -423,7 +455,8 @@ export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: str
         cantidad: d.cantidad ?? 0,
         precio_unitario,
         metodo_pago: pago.metodo,
-        comision_porcentaje: pago.comision_pct,
+        comision_porcentaje,
+        precio_bruto_unitario,
         precio_neto_unitario,
       }
     })
@@ -575,12 +608,29 @@ export async function crearVenta(
       }
     }
 
+    // ----- COMISIÓN BANCARIA EFECTIVA -----------------------------------------
+    // Se calcula como promedio ponderado de los % de comisión de cada método de
+    // pago, usando monto_bruto como peso.
+    // Resultado: 0 si la venta es 100% efectivo/crédito, > 0 si hay banco.
+    let comisionEfectivaPct = 0
+    if (pagosDetalle.length > 0) {
+      const sumBrutoTotal = pagosDetalle.reduce((s, p) => s + Number(p.monto_bruto || 0), 0)
+      const sumComisionLps = pagosDetalle.reduce((s, p) => {
+        const pct = Number(p.porcentaje_comision ?? 0)
+        return s + Number(p.monto_bruto || 0) * pct / 100
+      }, 0)
+      comisionEfectivaPct = sumBrutoTotal > 0
+        ? +((sumComisionLps / sumBrutoTotal) * 100).toFixed(4)
+        : 0
+    }
+
     // 1. Insert venta encabezado with almacen_id (sello completo: empresa + usuario)
     const encabezadoConAlmacen = {
       ...data.encabezado,
       valorpago: valorpagoCalculado,
       estado_pago: estadoPagoCalculado,
       almacen_id: data.almacen_id,
+      comisionbanc: comisionEfectivaPct,
       ...stamp
     }
 
@@ -590,20 +640,15 @@ export async function crearVenta(
       .select()
       .single()
 
-    // Fallback: si la columna `valorpago` aun no existe en la DB
-    // (migracion 009 pendiente), re-intentamos sin ese campo para no
-    // bloquear la creacion de ventas. El estado_pago se mantiene pero el
-    // abono inicial queda sin persistir hasta que se aplique la migracion.
-    if (ventaError && /valorpago/i.test(ventaError.message || '')) {
-      console.warn(
-        '[crearVenta] Columna `valorpago` no existe. Reintentando sin ella. ' +
-        'Aplica scripts/009-add-valorpago-to-ventas.sql para habilitar el feature.'
-      )
-      const { valorpago: _omit, ...sinValorpago } = encabezadoConAlmacen as
-        { valorpago?: number } & Record<string, unknown>
+    // Fallback: si la columna `valorpago` o `comisionbanc` aun no existe en la DB,
+    // reintentamos sin ese campo para no bloquear la creacion de ventas.
+    if (ventaError && /valorpago|comisionbanc/i.test(ventaError.message || '')) {
+      console.warn('[crearVenta] Columna valorpago/comisionbanc no existe. Reintentando sin ella.')
+      const { valorpago: _v, comisionbanc: _c, ...sinCamposNuevos } = encabezadoConAlmacen as
+        { valorpago?: number; comisionbanc?: number } & Record<string, unknown>
       const retry = await supabase
         .from('ventas_encabezado')
-        .insert(sinValorpago)
+        .insert(sinCamposNuevos)
         .select()
         .single()
       ventaData = retry.data
@@ -612,12 +657,28 @@ export async function crearVenta(
 
     if (ventaError) return { data: null, error: ventaError.message }
 
-    // 2. Insert detalles (solo razon_social_id, no usuario)
-    const detallesConVenta = data.detalles.map(d => ({
-      ...d,
-      venta_id: ventaData.id,
-      razon_social_id: stamp.razon_social_id
-    }))
+    // 2. Insert detalles — precio_unitario se guarda como precio NETO cuando
+    //    hay comisión bancaria (bruto × (1 - comisionEfectivaPct/100)).
+    //    utilidad_linea se recalcula sobre el precio neto para reflejar el
+    //    ingreso real del negocio.
+    const detallesConVenta = data.detalles.map(d => {
+      if (comisionEfectivaPct > 0) {
+        const precioNeto = +(d.precio_unitario * (1 - comisionEfectivaPct / 100)).toFixed(4)
+        const utilidadNeta = +((precioNeto - d.costo_promedio_momento) * d.cantidad).toFixed(4)
+        return {
+          ...d,
+          venta_id: ventaData.id,
+          razon_social_id: stamp.razon_social_id,
+          precio_unitario: precioNeto,
+          utilidad_linea: utilidadNeta,
+        }
+      }
+      return {
+        ...d,
+        venta_id: ventaData.id,
+        razon_social_id: stamp.razon_social_id,
+      }
+    })
 
     const { error: detallesError } = await supabase
       .from('ventas_detalle')

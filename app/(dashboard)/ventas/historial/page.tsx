@@ -357,7 +357,7 @@ export default function HistorialVentasPage() {
       "Producto": l.producto_nombre ?? "",
       "Código": l.codigo_barras ?? "",
       "Cantidad": l.cantidad ?? 0,
-      "Precio Unit. Bruto (L)": Number((l.precio_unitario ?? 0).toFixed(2)),
+      "Precio Unit. Bruto (L)": Number((l.precio_bruto_unitario ?? 0).toFixed(2)),
       "Precio Unit. Neto (L)": Number(l.precio_neto_unitario.toFixed(2)),
       "Subtotal Neto (L)": Number(((l.cantidad ?? 0) * l.precio_neto_unitario).toFixed(2)),
     }))
@@ -775,13 +775,13 @@ export default function HistorialVentasPage() {
                       <div>
                         {tieneComision ? (
                           <>
-                            <p className="text-xs text-stone-400 line-through">{linea.cantidad} × L {(linea.precio_unitario ?? 0).toFixed(2)}</p>
+                            <p className="text-xs text-stone-400 line-through">{linea.cantidad} × L {(linea.precio_bruto_unitario ?? 0).toFixed(2)}</p>
                             <p className="text-xs text-blue-600">−{linea.comision_porcentaje.toFixed(2)}% comisión banco</p>
                             <p className="font-bold text-base">L {subtotalNeto.toFixed(2)}</p>
                           </>
                         ) : (
                           <>
-                            <p className="text-xs text-stone-500">{linea.cantidad} × L {(linea.precio_unitario ?? 0).toFixed(2)}</p>
+                            <p className="text-xs text-stone-500">{linea.cantidad} × L {(linea.precio_bruto_unitario ?? 0).toFixed(2)}</p>
                             <p className="font-bold text-base">L {subtotalNeto.toFixed(2)}</p>
                           </>
                         )}
@@ -867,10 +867,10 @@ export default function HistorialVentasPage() {
                                 <div className="flex flex-col items-end leading-tight">
                                   <span className="font-medium">L {linea.precio_neto_unitario.toFixed(2)}</span>
                                   <span className="text-xs text-blue-600">−{linea.comision_porcentaje.toFixed(2)}%</span>
-                                  <span className="text-xs text-stone-400 line-through">L {(linea.precio_unitario ?? 0).toFixed(2)}</span>
+                                  <span className="text-xs text-stone-400 line-through">L {(linea.precio_bruto_unitario ?? 0).toFixed(2)}</span>
                                 </div>
                               ) : (
-                                <span className="text-stone-600">L {(linea.precio_unitario ?? 0).toFixed(2)}</span>
+                                <span className="text-stone-600">L {(linea.precio_bruto_unitario ?? 0).toFixed(2)}</span>
                               )}
                             </TableCell>
                             <TableCell className="text-right font-medium whitespace-nowrap">
