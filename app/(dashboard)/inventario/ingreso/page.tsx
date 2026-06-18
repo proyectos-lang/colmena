@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import {
-  Package, Warehouse, MapPin, AlertTriangle,
+  Package, Warehouse, MapPin, AlertTriangle, Search,
   ArrowDownCircle, ArrowUpCircle, FileSpreadsheet, Upload, X, CheckCircle2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -21,7 +21,11 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
-import { getProductos, getAlmacenes, getLocalizaciones, type Producto, type Almacen, type Localizacion } from "@/lib/services/catalogos"
+import {
+  getProductoPorCodigo,
+  getAlmacenes, getLocalizaciones,
+  type Producto, type Almacen, type Localizacion,
+} from "@/lib/services/catalogos"
 import { procesarIngresoManual, procesarSalidaManual, procesarIngresosMasivoAdmin } from "@/lib/services/inventario"
 import { parseInventarioExcelRaw } from "@/lib/utils/excel-parsers"
 
@@ -36,18 +40,22 @@ interface FilaExcel {
 
 export default function MovimientosManualesPage() {
   const { toast } = useToast()
-  const [productos, setProductos] = React.useState<Producto[]>([])
   const [almacenes, setAlmacenes] = React.useState<Almacen[]>([])
   const [localizaciones, setLocalizaciones] = React.useState<Localizacion[]>([])
   const [localizacionesFiltradas, setLocalizacionesFiltradas] = React.useState<Localizacion[]>([])
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
-  const [searchTerm, setSearchTerm] = React.useState("")
+
+  // ── Búsqueda por código ─────────────────────────────────────
+  const [codigoBusqueda, setCodigoBusqueda] = React.useState("")
+  const [buscandoProducto, setBuscandoProducto] = React.useState(false)
+  const [productoEncontrado, setProductoEncontrado] = React.useState<Producto | null>(null)
+  const [errorBusqueda, setErrorBusqueda] = React.useState<string | null>(null)
 
   // ── Individual ──────────────────────────────────────────────
   const [tipoInd, setTipoInd] = React.useState<TipoMovimiento>("ingreso")
   const [formData, setFormData] = React.useState({
-    producto_id: "", almacen_id: "", localizacion_id: "",
+    almacen_id: "", localizacion_id: "",
     cantidad: "", costo_unitario: "", observaciones: "",
   })
 
@@ -66,12 +74,8 @@ export default function MovimientosManualesPage() {
 
   async function loadData() {
     setLoading(true)
-    const [prodRes, almRes, locRes] = await Promise.all([
-      getProductos(), getAlmacenes(), getLocalizaciones(),
-    ])
-    if (prodRes.error) toast({ title: "Error", description: prodRes.error, variant: "destructive" })
+    const [almRes, locRes] = await Promise.all([getAlmacenes(), getLocalizaciones()])
     if (almRes.error) toast({ title: "Error", description: almRes.error, variant: "destructive" })
-    setProductos(prodRes.data)
     setAlmacenes(almRes.data)
     setLocalizaciones(locRes.data)
     if (almRes.data.length === 1) {
@@ -89,8 +93,30 @@ export default function MovimientosManualesPage() {
     setLoading(false)
   }
 
+  async function buscarProducto() {
+    const codigo = codigoBusqueda.trim()
+    if (!codigo) return
+    setBuscandoProducto(true)
+    setProductoEncontrado(null)
+    setErrorBusqueda(null)
+    const { data, error } = await getProductoPorCodigo(codigo)
+    setBuscandoProducto(false)
+    if (error || !data) {
+      setErrorBusqueda(error ?? "Producto no encontrado")
+    } else {
+      setProductoEncontrado(data)
+    }
+  }
+
+  function handleCodigoKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      buscarProducto()
+    }
+  }
+
   function handleAlmacenChange(value: string) {
-    setFormData({ ...formData, almacen_id: value, localizacion_id: "" })
+    setFormData(prev => ({ ...prev, almacen_id: value, localizacion_id: "" }))
     const filtradas = localizaciones.filter(l => l.almacen_id === parseInt(value))
     setLocalizacionesFiltradas(filtradas)
     if (filtradas.length === 1) {
@@ -103,22 +129,16 @@ export default function MovimientosManualesPage() {
     setLocalizacionMasivo("")
     const filtradas = localizaciones.filter(l => l.almacen_id === parseInt(value))
     setLocalizacionesMasivo(filtradas)
-    if (filtradas.length === 1) {
-      setLocalizacionMasivo(filtradas[0].id!.toString())
-    }
+    if (filtradas.length === 1) setLocalizacionMasivo(filtradas[0].id!.toString())
   }
 
-  const productosFiltrados = productos.filter(p =>
-    p.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.codigo_barras?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
-
-  const selectedProducto = productos.find(p => p.id?.toString() === formData.producto_id)
   const cantidadNum = parseFloat(formData.cantidad) || 0
   const costoNum = parseFloat(formData.costo_unitario) || 0
-  const stockActual = selectedProducto?.stock_total || 0
-  const costoActual = selectedProducto?.costo_promedio || 0
-  const nuevoStock = tipoInd === "ingreso" ? stockActual + cantidadNum : Math.max(0, stockActual - cantidadNum)
+  const stockActual = productoEncontrado?.stock_total ?? 0
+  const costoActual = productoEncontrado?.costo_promedio ?? 0
+  const nuevoStock = tipoInd === "ingreso"
+    ? stockActual + cantidadNum
+    : Math.max(0, stockActual - cantidadNum)
   const nuevoCosto = tipoInd === "ingreso" && nuevoStock > 0
     ? ((stockActual * costoActual) + (cantidadNum * costoNum)) / nuevoStock
     : costoActual
@@ -126,18 +146,33 @@ export default function MovimientosManualesPage() {
   // ── Ingreso/Salida individual ────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!formData.producto_id) { toast({ title: "Error", description: "Seleccione un producto", variant: "destructive" }); return }
-    if (!formData.almacen_id) { toast({ title: "Error", description: "Seleccione un almacen", variant: "destructive" }); return }
-    if (!formData.localizacion_id) { toast({ title: "Error", description: "Seleccione una localizacion", variant: "destructive" }); return }
-    if (cantidadNum <= 0) { toast({ title: "Error", description: "Ingrese una cantidad valida", variant: "destructive" }); return }
-    if (tipoInd === "ingreso" && costoNum <= 0) { toast({ title: "Error", description: "Ingrese un costo unitario valido", variant: "destructive" }); return }
+    if (!productoEncontrado?.id) {
+      toast({ title: "Error", description: "Busque y seleccione un producto primero", variant: "destructive" })
+      return
+    }
+    if (!formData.almacen_id) {
+      toast({ title: "Error", description: "Seleccione un almacén", variant: "destructive" })
+      return
+    }
+    if (!formData.localizacion_id) {
+      toast({ title: "Error", description: "Seleccione una localización", variant: "destructive" })
+      return
+    }
+    if (cantidadNum <= 0) {
+      toast({ title: "Error", description: "Ingrese una cantidad válida", variant: "destructive" })
+      return
+    }
+    if (tipoInd === "ingreso" && costoNum <= 0) {
+      toast({ title: "Error", description: "Ingrese un costo unitario válido", variant: "destructive" })
+      return
+    }
 
     setSaving(true)
 
     let result: { success: boolean; error: string | null }
     if (tipoInd === "ingreso") {
       result = await procesarIngresoManual({
-        producto_id: parseInt(formData.producto_id),
+        producto_id: productoEncontrado.id,
         almacen_id: parseInt(formData.almacen_id),
         localizacion_id: parseInt(formData.localizacion_id),
         cantidad: cantidadNum,
@@ -150,7 +185,7 @@ export default function MovimientosManualesPage() {
       })
     } else {
       result = await procesarSalidaManual({
-        producto_id: parseInt(formData.producto_id),
+        producto_id: productoEncontrado.id,
         almacen_id: parseInt(formData.almacen_id),
         localizacion_id: parseInt(formData.localizacion_id),
         cantidad: cantidadNum,
@@ -159,21 +194,26 @@ export default function MovimientosManualesPage() {
     }
 
     setSaving(false)
-    if (result.error) { toast({ title: "Error", description: result.error, variant: "destructive" }); return }
+    if (result.error) {
+      toast({ title: "Error", description: result.error, variant: "destructive" })
+      return
+    }
 
     toast({
       title: tipoInd === "ingreso" ? "Ingreso procesado" : "Salida procesada",
-      description: `${cantidadNum} unidades de ${selectedProducto?.nombre}`,
+      description: `${cantidadNum} unidades de ${productoEncontrado.nombre}`,
     })
 
-    setFormData({
-      producto_id: "",
-      almacen_id: almacenes.length === 1 ? almacenes[0].id!.toString() : "",
-      localizacion_id: "",
-      cantidad: "", costo_unitario: "", observaciones: "",
-    })
-    setSearchTerm("")
-    loadData()
+    // Reset producto y campos de cantidad
+    setCodigoBusqueda("")
+    setProductoEncontrado(null)
+    setErrorBusqueda(null)
+    setFormData(prev => ({
+      ...prev,
+      cantidad: "",
+      costo_unitario: "",
+      observaciones: "",
+    }))
   }
 
   // ── Excel masivo ─────────────────────────────────────────────
@@ -198,7 +238,6 @@ export default function MovimientosManualesPage() {
     )
     setProcesando(false)
     setResultadoMasivo(resultado)
-    if (resultado.procesados > 0) loadData()
   }
 
   if (loading) {
@@ -246,9 +285,7 @@ export default function MovimientosManualesPage() {
             </Button>
           </div>
 
-          <Alert className={tipoInd === "ingreso"
-            ? "border-amber-200 bg-amber-50"
-            : "border-red-200 bg-red-50"}>
+          <Alert className={tipoInd === "ingreso" ? "border-amber-200 bg-amber-50" : "border-red-200 bg-red-50"}>
             <AlertTriangle className={`h-4 w-4 ${tipoInd === "ingreso" ? "text-amber-600" : "text-red-600"}`} />
             <AlertTitle className={tipoInd === "ingreso" ? "text-amber-800" : "text-red-800"}>
               {tipoInd === "ingreso" ? "Ingreso de inventario" : "Salida de inventario"}
@@ -262,68 +299,112 @@ export default function MovimientosManualesPage() {
 
           <form onSubmit={handleSubmit}>
             <div className="grid gap-4 md:gap-6 lg:grid-cols-3">
-              {/* Selección de producto */}
+              {/* Búsqueda y datos del producto */}
               <Card className="lg:col-span-2 border-amber-100 bg-gradient-to-br from-amber-50/50 to-orange-50/30">
                 <CardHeader className="p-4 md:p-6">
                   <CardTitle className="text-base md:text-lg flex items-center gap-2">
                     <Package className="h-4 w-4 md:h-5 md:w-5 text-amber-600" />
-                    Seleccionar Producto
+                    Buscar Producto
                   </CardTitle>
-                  <CardDescription>Busque y seleccione el producto</CardDescription>
+                  <CardDescription>Escriba el código de barras y presione la lupa o Enter</CardDescription>
                 </CardHeader>
                 <CardContent className="p-4 md:p-6 pt-0 space-y-4">
-                  <div className="grid gap-3 md:gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label className="text-sm">Buscar Producto</Label>
+                  {/* Buscador por código */}
+                  <div className="space-y-2">
+                    <Label className="text-sm">Código de barras</Label>
+                    <div className="flex gap-2">
                       <Input
-                        placeholder="Nombre o código..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="bg-background"
+                        placeholder="Escribe el código y presiona Enter o la lupa..."
+                        value={codigoBusqueda}
+                        onChange={(e) => {
+                          setCodigoBusqueda(e.target.value)
+                          if (productoEncontrado) {
+                            setProductoEncontrado(null)
+                            setErrorBusqueda(null)
+                          }
+                        }}
+                        onKeyDown={handleCodigoKeyDown}
+                        className="bg-background font-mono"
+                        autoComplete="off"
                       />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-sm">Producto</Label>
-                      <Select value={formData.producto_id} onValueChange={(v) => setFormData({ ...formData, producto_id: v })}>
-                        <SelectTrigger className="bg-background">
-                          <SelectValue placeholder="Seleccione un producto" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {productosFiltrados.map((p) => (
-                            <SelectItem key={p.id} value={p.id!.toString()}>
-                              {p.codigo_barras ? `[${p.codigo_barras}] ` : ""}{p.nombre}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="shrink-0"
+                        onClick={buscarProducto}
+                        disabled={buscandoProducto || !codigoBusqueda.trim()}
+                        title="Buscar producto"
+                      >
+                        {buscandoProducto
+                          ? <Spinner className="h-4 w-4" />
+                          : <Search className="h-4 w-4" />}
+                      </Button>
                     </div>
                   </div>
 
-                  {selectedProducto && (
-                    <div className="p-3 md:p-4 bg-background border rounded-lg">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground mb-3">Datos Actuales</p>
+                  {/* Error de búsqueda */}
+                  {errorBusqueda && (
+                    <Alert className="border-red-200 bg-red-50 py-3">
+                      <AlertTriangle className="h-4 w-4 text-red-600" />
+                      <AlertDescription className="text-red-700 text-sm">
+                        {errorBusqueda} — verifique el código e intente nuevamente.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {/* Datos del producto encontrado */}
+                  {productoEncontrado && (
+                    <div className="p-3 md:p-4 bg-background border border-green-200 rounded-lg">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Producto encontrado</p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 text-stone-400 hover:text-stone-600"
+                          onClick={() => {
+                            setProductoEncontrado(null)
+                            setCodigoBusqueda("")
+                            setErrorBusqueda(null)
+                          }}
+                          title="Limpiar selección"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                       <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-                        <div>
+                        <div className="md:col-span-2">
                           <p className="text-xs text-muted-foreground">Nombre</p>
-                          <p className="font-medium text-sm truncate">{selectedProducto.nombre}</p>
+                          <p className="font-semibold text-sm">{productoEncontrado.nombre}</p>
+                          {productoEncontrado.emprendimiento_nombre && (
+                            <p className="text-xs text-amber-600 mt-0.5">{productoEncontrado.emprendimiento_nombre}</p>
+                          )}
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Código</p>
-                          <p className="font-mono text-sm">{selectedProducto.codigo_barras || "—"}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground">Stock Total</p>
-                          <p className="font-bold text-lg">{stockActual}</p>
+                          <p className="font-mono text-sm">{productoEncontrado.codigo_barras || "—"}</p>
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Costo Promedio</p>
-                          <p className="font-bold text-lg text-primary">L {costoActual.toFixed(2)}</p>
+                          <p className="font-medium text-sm text-primary">L {costoActual.toFixed(2)}</p>
                         </div>
+                      </div>
+                      <div className="mt-3 pt-3 border-t flex items-center gap-3">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Stock en inventario</p>
+                          <p className={`font-bold text-2xl ${stockActual === 0 ? "text-red-600" : "text-stone-800"}`}>
+                            {stockActual}
+                          </p>
+                        </div>
+                        {stockActual === 0 && tipoInd === "salida" && (
+                          <Badge variant="destructive" className="text-xs">Sin stock disponible</Badge>
+                        )}
                       </div>
                     </div>
                   )}
 
-                  {/* Cantidad + costo (costo solo para ingreso) */}
+                  {/* Cantidad + costo */}
                   <div className={`grid gap-4 ${tipoInd === "ingreso" ? "md:grid-cols-2" : ""}`}>
                     <div className="space-y-2">
                       <Label className="text-sm">Cantidad</Label>
@@ -333,8 +414,9 @@ export default function MovimientosManualesPage() {
                         step="1"
                         placeholder="0"
                         value={formData.cantidad}
-                        onChange={(e) => setFormData({ ...formData, cantidad: e.target.value })}
+                        onChange={(e) => setFormData(prev => ({ ...prev, cantidad: e.target.value }))}
                         className="bg-background"
+                        disabled={!productoEncontrado}
                       />
                     </div>
                     {tipoInd === "ingreso" && (
@@ -346,8 +428,9 @@ export default function MovimientosManualesPage() {
                           step="0.01"
                           placeholder="0.00"
                           value={formData.costo_unitario}
-                          onChange={(e) => setFormData({ ...formData, costo_unitario: e.target.value })}
+                          onChange={(e) => setFormData(prev => ({ ...prev, costo_unitario: e.target.value }))}
                           className="bg-background"
+                          disabled={!productoEncontrado}
                         />
                       </div>
                     )}
@@ -358,9 +441,10 @@ export default function MovimientosManualesPage() {
                     <Textarea
                       placeholder="Notas adicionales..."
                       value={formData.observaciones}
-                      onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}
+                      onChange={(e) => setFormData(prev => ({ ...prev, observaciones: e.target.value }))}
                       rows={2}
                       className="bg-background"
+                      disabled={!productoEncontrado}
                     />
                   </div>
                 </CardContent>
@@ -380,7 +464,7 @@ export default function MovimientosManualesPage() {
                       <Label className="text-sm">Almacén</Label>
                       <Select value={formData.almacen_id} onValueChange={handleAlmacenChange}>
                         <SelectTrigger className="bg-background">
-                          <SelectValue placeholder="Seleccione almacen" />
+                          <SelectValue placeholder="Seleccione almacén" />
                         </SelectTrigger>
                         <SelectContent>
                           {almacenes.map((a) => (
@@ -395,7 +479,7 @@ export default function MovimientosManualesPage() {
                       </Label>
                       <Select
                         value={formData.localizacion_id}
-                        onValueChange={(v) => setFormData({ ...formData, localizacion_id: v })}
+                        onValueChange={(v) => setFormData(prev => ({ ...prev, localizacion_id: v }))}
                         disabled={!formData.almacen_id}
                       >
                         <SelectTrigger className="bg-background">
@@ -412,7 +496,7 @@ export default function MovimientosManualesPage() {
                 </Card>
 
                 {/* Preview del impacto */}
-                {selectedProducto && cantidadNum > 0 && (
+                {productoEncontrado && cantidadNum > 0 && (
                   <Card className={`border-2 ${tipoInd === "ingreso" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
                     <CardContent className="p-4 space-y-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -423,9 +507,9 @@ export default function MovimientosManualesPage() {
                         <span className="font-mono font-medium">{stockActual}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm">{tipoInd === "ingreso" ? "+ Ingreso" : "- Salida"}</span>
+                        <span className="text-sm">{tipoInd === "ingreso" ? "+ Ingreso" : "− Salida"}</span>
                         <span className={`font-mono font-medium ${tipoInd === "ingreso" ? "text-green-600" : "text-red-600"}`}>
-                          {tipoInd === "ingreso" ? "+" : "-"}{cantidadNum}
+                          {tipoInd === "ingreso" ? "+" : "−"}{cantidadNum}
                         </span>
                       </div>
                       <div className="border-t pt-2 flex justify-between items-center">
@@ -445,7 +529,7 @@ export default function MovimientosManualesPage() {
                 <Button
                   type="submit"
                   className={`w-full ${tipoInd === "ingreso" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}`}
-                  disabled={saving}
+                  disabled={saving || !productoEncontrado}
                 >
                   {saving ? (
                     <><Spinner className="h-4 w-4 mr-2" /> Procesando...</>
