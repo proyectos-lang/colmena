@@ -352,8 +352,7 @@ export default function HistorialVentasPage() {
       "Cliente": l.cliente_nombre ?? "",
       "Almacén": l.almacen_nombre ?? "",
       "Estado": l.estado_pago ?? "",
-      "Método Pago": l.metodo_pago ?? "",
-      "% Comisión": l.comision_porcentaje > 0 ? Number(l.comision_porcentaje.toFixed(2)) : 0,
+      "Comisión Bancaria (%)": l.comisionbanc != null ? Number(l.comisionbanc) : 0,
       "Producto": l.producto_nombre ?? "",
       "Código": l.codigo_barras ?? "",
       "Cantidad": l.cantidad ?? 0,
@@ -540,21 +539,6 @@ export default function HistorialVentasPage() {
             Otro
           </Badge>
         )
-    }
-  }
-
-  const getMetodoBadgeLinea = (metodo: string) => {
-    switch (metodo) {
-      case "Efectivo":
-        return <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 gap-1 font-normal text-xs"><Wallet className="h-3 w-3" />Efectivo</Badge>
-      case "Banco":
-        return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border border-blue-200 gap-1 font-normal text-xs"><Banknote className="h-3 w-3" />Banco</Badge>
-      case "Mixto":
-        return <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100 border border-purple-200 gap-1 font-normal text-xs"><Shuffle className="h-3 w-3" />Mixto</Badge>
-      case "Credito":
-        return <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border border-amber-200 gap-1 font-normal text-xs"><CreditCard className="h-3 w-3" />Crédito</Badge>
-      default:
-        return <Badge variant="outline" className="font-normal text-xs">Otro</Badge>
     }
   }
 
@@ -761,7 +745,13 @@ export default function HistorialVentasPage() {
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         {getEstadoBadge(linea.estado_pago)}
-                        {getMetodoBadgeLinea(linea.metodo_pago)}
+                        {linea.comisionbanc != null && linea.comisionbanc > 0 ? (
+                          <span className="text-xs font-medium text-blue-700 bg-blue-50 rounded px-1.5 py-0.5">
+                            Com. {linea.comisionbanc}%
+                          </span>
+                        ) : (
+                          <span className="text-xs text-stone-400">Sin comisión</span>
+                        )}
                       </div>
                     </div>
                     {linea.emprendimiento_nombre && (
@@ -831,7 +821,7 @@ export default function HistorialVentasPage() {
                         <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">N° Factura</TableHead>
                         <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Cliente</TableHead>
                         <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Producto</TableHead>
-                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Método</TableHead>
+                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10 text-right">Com. Bancaria</TableHead>
                         <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Cant.</TableHead>
                         <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Precio Unit. (neto)</TableHead>
                         <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Subtotal neto</TableHead>
@@ -860,7 +850,15 @@ export default function HistorialVentasPage() {
                             <TableCell className="font-mono font-medium whitespace-nowrap">{linea.numero_factura}</TableCell>
                             <TableCell className="text-stone-600">{linea.cliente_nombre}</TableCell>
                             <TableCell className="font-medium text-stone-800">{linea.producto_nombre}</TableCell>
-                            <TableCell>{getMetodoBadgeLinea(linea.metodo_pago)}</TableCell>
+                            <TableCell className="text-right whitespace-nowrap">
+                              {linea.comisionbanc != null && linea.comisionbanc > 0 ? (
+                                <span className="text-xs font-medium text-blue-700 bg-blue-50 rounded px-1.5 py-0.5">
+                                  {linea.comisionbanc}%
+                                </span>
+                              ) : (
+                                <span className="text-xs text-stone-400">—</span>
+                              )}
+                            </TableCell>
                             <TableCell className="text-right text-stone-600">{linea.cantidad}</TableCell>
                             <TableCell className="text-right whitespace-nowrap">
                               {tieneComision ? (

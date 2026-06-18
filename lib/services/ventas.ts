@@ -260,6 +260,8 @@ export interface LineaVenta {
   precio_unitario: number
   /** Método de pago agregado de la venta (Efectivo/Banco/Mixto/Credito/Otro) */
   metodo_pago: string
+  /** Valor directo del campo comisionbanc en ventas_encabezado (null si columna no existe aún) */
+  comisionbanc: number | null
   /** Comisión bancaria efectiva de la venta en %, ya ponderada si es Mixto */
   comision_porcentaje: number
   /** Precio original antes de comisión (lo que el cliente paga) */
@@ -455,6 +457,7 @@ export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: str
         cantidad: d.cantidad ?? 0,
         precio_unitario,
         metodo_pago: pago.metodo,
+        comisionbanc: comisionbanc,
         comision_porcentaje,
         precio_bruto_unitario,
         precio_neto_unitario,
