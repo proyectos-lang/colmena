@@ -236,6 +236,24 @@ export interface VentaDetalleAnalitico {
   almacen_nombre: string
 }
 
+export interface LineaVenta {
+  detalle_id: number
+  venta_id: number
+  producto_id: number
+  numero_factura: string
+  fecha_venta: string
+  cliente_nombre: string
+  almacen_nombre: string
+  estado_pago: string
+  total_venta: number
+  valorpago: number
+  producto_nombre: string
+  codigo_barras: string
+  emprendimiento_nombre: string | null
+  cantidad: number
+  precio_unitario: number
+}
+
 export async function getDetalleAnalitico(
   fechaInicio?: string,
   fechaFin?: string
@@ -297,6 +315,69 @@ export async function getDetalleAnalitico(
     return { data: formattedData, error: null }
   } catch (err) {
     console.error('[Supabase] Error obteniendo detalle analitico:', err)
+    return { data: [], error: 'Error de conexion' }
+  }
+}
+
+export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: string | null }> {
+  if (!isSupabaseConfigured()) {
+    return { data: [], error: null }
+  }
+  const supabase = createClient()
+  if (!supabase) return { data: [], error: 'Cliente no disponible' }
+  try {
+    const { data, error } = await supabase
+      .from('ventas_detalle')
+      .select(`
+        id,
+        venta_id,
+        producto_id,
+        cantidad,
+        precio_unitario,
+        ventas_encabezado (
+          numero_factura,
+          fecha_venta,
+          estado_pago,
+          total_venta,
+          valorpago,
+          clientes ( nombre ),
+          almacenes ( nombre )
+        ),
+        productos (
+          nombre,
+          codigo_barras,
+          emprendimientos ( nombre )
+        )
+      `)
+      .order('venta_id', { ascending: false })
+
+    if (error) return { data: [], error: error.message }
+
+    const formattedData: LineaVenta[] = (data ?? []).map((d: any) => {
+      const ve = d.ventas_encabezado
+      const p = d.productos
+      return {
+        detalle_id: d.id,
+        venta_id: d.venta_id,
+        producto_id: d.producto_id,
+        numero_factura: ve?.numero_factura ?? '',
+        fecha_venta: ve?.fecha_venta ?? '',
+        cliente_nombre: ve?.clientes?.nombre ?? '',
+        almacen_nombre: ve?.almacenes?.nombre ?? '',
+        estado_pago: ve?.estado_pago ?? '',
+        total_venta: ve?.total_venta ?? 0,
+        valorpago: ve?.valorpago ?? 0,
+        producto_nombre: p?.nombre ?? '',
+        codigo_barras: p?.codigo_barras ?? '',
+        emprendimiento_nombre: p?.emprendimientos?.nombre ?? null,
+        cantidad: d.cantidad ?? 0,
+        precio_unitario: d.precio_unitario ?? 0,
+      }
+    })
+
+    return { data: formattedData, error: null }
+  } catch (err) {
+    console.error('[getLineasVenta] Exception:', err)
     return { data: [], error: 'Error de conexion' }
   }
 }
@@ -1726,6 +1807,107 @@ export async function eliminarVentaCompletamente(
   } catch (err) {
     console.error('[v0][eliminarVentaCompletamente] Exception:', err)
     return { error: 'No se pudo eliminar la venta' }
+  }
+}
+
+export async function eliminarLineaVenta(
+  detalleId: number,
+  ventaId: number,
+  productoId: number,
+  cantidad: number
+): Promise<{ error: string | null }> {
+  const supabase = createClient()
+  if (!supabase) return { error: 'Cliente no disponible' }
+
+  try {
+    const stamp = await getTenantStamp(supabase)
+    if (!isValidStamp(stamp)) {
+      return { error: SESION_INVALIDA_ERROR }
+    }
+
+    const { data: encabezado, error: encErr } = await supabase
+      .from('ventas_encabezado')
+      .select('id, razon_social_id, porcentaje_impuesto')
+      .eq('id', ventaId)
+      .single()
+
+    if (encErr || !encabezado) return { error: 'La venta no existe' }
+    if (encabezado.razon_social_id !== stamp.razon_social_id) {
+      return { error: 'La venta no pertenece a la empresa activa' }
+    }
+
+    // 1. Revert stock for this product
+    const { data: prod } = await supabase
+      .from('productos')
+      .select('stock_total')
+      .eq('id', productoId)
+      .eq('razon_social_id', stamp.razon_social_id)
+      .single()
+
+    if (prod) {
+      await supabase
+        .from('productos')
+        .update({
+          stock_total: (prod.stock_total || 0) + (cantidad || 0),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', productoId)
+        .eq('razon_social_id', stamp.razon_social_id)
+    }
+
+    // 2. Delete inventory transaction for this line
+    await supabase
+      .from('transacciones_inventario')
+      .delete()
+      .eq('referencia_id', ventaId)
+      .eq('producto_id', productoId)
+      .eq('tipo_movimiento', 'Salida Venta')
+      .eq('razon_social_id', stamp.razon_social_id)
+
+    // 3. Delete the detail line
+    const { error: delErr } = await supabase
+      .from('ventas_detalle')
+      .delete()
+      .eq('id', detalleId)
+      .eq('razon_social_id', stamp.razon_social_id)
+
+    if (delErr) return { error: delErr.message }
+
+    // 4. Recalculate header totals from remaining lines
+    const { data: restantes } = await supabase
+      .from('ventas_detalle')
+      .select('cantidad, precio_unitario')
+      .eq('venta_id', ventaId)
+      .eq('razon_social_id', stamp.razon_social_id)
+
+    if (!restantes || restantes.length === 0) {
+      // No lines remain: clean up the sale
+      await supabase.from('ventas_pagos_detalle').delete().eq('venta_id', ventaId).eq('razon_social_id', stamp.razon_social_id)
+      await supabase.from('pagos_ventas').delete().eq('venta_id', ventaId).eq('razon_social_id', stamp.razon_social_id)
+      await supabase.from('ventas_encabezado').delete().eq('id', ventaId).eq('razon_social_id', stamp.razon_social_id)
+    } else {
+      const subtotalNuevo = restantes.reduce(
+        (acc, r) => acc + (r.cantidad ?? 0) * (r.precio_unitario ?? 0), 0
+      )
+      const pct = encabezado.porcentaje_impuesto ?? 0
+      const isvNuevo = subtotalNuevo * (pct / 100)
+      const totalNuevo = subtotalNuevo + isvNuevo
+      await supabase
+        .from('ventas_encabezado')
+        .update({
+          subtotal: +subtotalNuevo.toFixed(2),
+          impuesto_total: +isvNuevo.toFixed(2),
+          total_venta: +totalNuevo.toFixed(2),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', ventaId)
+        .eq('razon_social_id', stamp.razon_social_id)
+    }
+
+    return { error: null }
+  } catch (err) {
+    console.error('[eliminarLineaVenta] Exception:', err)
+    return { error: 'No se pudo eliminar la línea' }
   }
 }
 

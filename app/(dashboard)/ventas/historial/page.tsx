@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Eye, CreditCard, Download, FileSpreadsheet, CalendarIcon, Banknote, Wallet, Shuffle, Trash2, Loader2, ChevronRight, ChevronDown } from "lucide-react"
+import { CreditCard, Download, FileSpreadsheet, Banknote, Wallet, Shuffle, Trash2, Loader2 } from "lucide-react"
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
 import * as XLSX from "xlsx"
@@ -57,10 +57,13 @@ import {
   eliminarVentaCompletamente,
   getRazonSocialForPdf,
   getDetalleAnalitico,
+  getLineasVenta,
+  eliminarLineaVenta,
   type VentaEncabezado,
   type VentaDetalle,
   type PagoVenta,
   type VentaDetalleAnalitico,
+  type LineaVenta,
 } from "@/lib/services/ventas"
 import { getMetodosPagoPorVenta } from "@/lib/services/ventas-analytics"
 
@@ -115,14 +118,16 @@ export default function HistorialVentasPage() {
   const [pagoMetodo, setPagoMetodo] = React.useState<string>("Efectivo")
   const [savingPago, setSavingPago] = React.useState(false)
 
-  // --- Eliminar venta (alert dialog) ---
+  // --- Eliminar venta completa (alert dialog) ---
   const [ventaAEliminar, setVentaAEliminar] = React.useState<VentaEncabezado | null>(null)
   const [deletingVenta, setDeletingVenta] = React.useState(false)
 
-  // --- Filas expandibles en Resumen de Facturas ---
-  const [expandedVentaIds, setExpandedVentaIds] = React.useState<Set<number>>(new Set())
-  const [detallesCache, setDetallesCache] = React.useState<Record<number, VentaDetalle[]>>({})
-  const [loadingDetalleIds, setLoadingDetalleIds] = React.useState<Set<number>>(new Set())
+  // --- Lineas de venta (historial línea por línea) ---
+  const [lineas, setLineas] = React.useState<LineaVenta[]>([])
+
+  // --- Eliminar línea individual ---
+  const [lineaAEliminar, setLineaAEliminar] = React.useState<LineaVenta | null>(null)
+  const [deletingLinea, setDeletingLinea] = React.useState(false)
 
   React.useEffect(() => {
     loadData()
@@ -131,21 +136,21 @@ export default function HistorialVentasPage() {
   async function loadData() {
     setLoading(true)
     try {
-      const [ventasRes, clientesRes, almacenesRes, productosRes, empsData] = await Promise.all([
+      const [ventasRes, clientesRes, almacenesRes, productosRes, empsData, lineasRes] = await Promise.all([
         getVentas(),
         getClientes(),
         getAlmacenes(),
         getProductos(),
         razonSocialId ? getEmprendimientos(razonSocialId) : Promise.resolve([]),
+        getLineasVenta(),
       ])
       setVentas(ventasRes.data)
       setClientes(clientesRes.data)
       setAlmacenes(almacenesRes.data)
       setProductos(productosRes.data)
       setEmprendimientos((empsData as Emprendimiento[]).filter((e) => e.activo !== false))
+      setLineas(lineasRes.data)
 
-      // Una sola query batch para clasificar el metodo de pago de cada venta
-      // visible. Aprovecha el Map<id, label> que regresa el helper.
       const ids = ventasRes.data.map(v => v.id!).filter((id): id is number => id != null)
       if (ids.length > 0) {
         const { data: mapa } = await getMetodosPagoPorVenta(ids)
@@ -186,23 +191,26 @@ export default function HistorialVentasPage() {
     }
   }
 
-  // --- Filtered ventas for Resumen de Facturas ---
-  const ventasFiltradas = React.useMemo(() => {
+  // --- Filtered line items for Resumen de Facturas (line-by-line view) ---
+  const lineasFiltradas = React.useMemo(() => {
     const clienteSeleccionado = clientes.find(c => c.id?.toString() === filtroClienteIdFacturas)?.nombre || ""
     const almacenSeleccionado = almacenes.find(a => a.id?.toString() === filtroAlmacenIdFacturas)?.nombre || ""
 
-    return ventas.filter(v => {
-      const fecha = v.fecha_venta?.split('T')[0] || ""
+    return lineas.filter(l => {
+      const fecha = l.fecha_venta?.split('T')[0] || ""
       const matchInicio = !filtroFechaInicioFacturas || fecha >= filtroFechaInicioFacturas
       const matchFin = !filtroFechaFinFacturas || fecha <= filtroFechaFinFacturas
-      const matchCliente = !filtroClienteIdFacturas || v.cliente_nombre === clienteSeleccionado
-      const matchAlmacen = !filtroAlmacenIdFacturas || v.almacen_nombre === almacenSeleccionado
-      const matchEstado = !filtroEstadoPago || v.estado_pago === filtroEstadoPago
+      const matchCliente = !filtroClienteIdFacturas || l.cliente_nombre === clienteSeleccionado
+      const matchAlmacen = !filtroAlmacenIdFacturas || l.almacen_nombre === almacenSeleccionado
+      const matchEstado = !filtroEstadoPago || l.estado_pago === filtroEstadoPago
       const matchEmprendimiento = !filtroEmprendimientoFacturas ||
-        v.emprendimiento_nombre === filtroEmprendimientoFacturas
+        l.emprendimiento_nombre === filtroEmprendimientoFacturas
       return matchInicio && matchFin && matchCliente && matchAlmacen && matchEstado && matchEmprendimiento
     })
-  }, [ventas, filtroFechaInicioFacturas, filtroFechaFinFacturas, filtroClienteIdFacturas, filtroAlmacenIdFacturas, filtroEstadoPago, filtroEmprendimientoFacturas, clientes, almacenes])
+  }, [lineas, filtroFechaInicioFacturas, filtroFechaFinFacturas, filtroClienteIdFacturas, filtroAlmacenIdFacturas, filtroEstadoPago, filtroEmprendimientoFacturas, clientes, almacenes])
+
+  // ventasFiltradas kept for PDF generation compatibility
+  const ventasFiltradas = React.useMemo(() => ventas, [ventas])
 
   // --- Filtered detalle analitico ---
   const detalleFiltrado = React.useMemo(() => {
@@ -292,71 +300,57 @@ export default function HistorialVentasPage() {
     }
   }
 
-  async function toggleExpandVenta(ventaId: number) {
-    if (expandedVentaIds.has(ventaId)) {
-      setExpandedVentaIds(prev => { const s = new Set(prev); s.delete(ventaId); return s })
-      return
-    }
-    if (!detallesCache[ventaId]) {
-      setLoadingDetalleIds(prev => new Set(prev).add(ventaId))
-      try {
-        const { data } = await getDetallesVenta(ventaId)
-        setDetallesCache(prev => ({ ...prev, [ventaId]: data }))
-      } finally {
-        setLoadingDetalleIds(prev => { const s = new Set(prev); s.delete(ventaId); return s })
+  async function handleEliminarLinea() {
+    if (!lineaAEliminar) return
+    setDeletingLinea(true)
+    try {
+      const { error } = await eliminarLineaVenta(
+        lineaAEliminar.detalle_id,
+        lineaAEliminar.venta_id,
+        lineaAEliminar.producto_id,
+        lineaAEliminar.cantidad
+      )
+      if (error) {
+        toast({ title: "Error", description: error, variant: "destructive" })
+        return
       }
+      toast({ title: "Línea eliminada", description: "La línea y su movimiento de inventario fueron revertidos" })
+      setLineas(prev => prev.filter(l => l.detalle_id !== lineaAEliminar.detalle_id))
+      setLineaAEliminar(null)
+      loadData()
+    } catch {
+      toast({ title: "Error", description: "No se pudo eliminar la línea", variant: "destructive" })
+    } finally {
+      setDeletingLinea(false)
     }
-    setExpandedVentaIds(prev => new Set(prev).add(ventaId))
   }
 
-  async function exportFacturasToExcel() {
-    if (ventasFiltradas.length === 0) {
-      toast({ title: "Sin datos", description: "No hay facturas para exportar", variant: "destructive" })
+  function exportFacturasToExcel() {
+    if (lineasFiltradas.length === 0) {
+      toast({ title: "Sin datos", description: "No hay líneas para exportar", variant: "destructive" })
       return
     }
-
-    // Cargar detalles faltantes en paralelo (reutiliza los ya cacheados)
-    const cache: Record<number, VentaDetalle[]> = { ...detallesCache }
-    const faltantes = ventasFiltradas.filter(v => v.id != null && !cache[v.id!])
-    if (faltantes.length > 0) {
-      toast({ title: "Preparando...", description: "Cargando detalle de productos" })
-      await Promise.all(faltantes.map(async v => {
-        const { data } = await getDetallesVenta(v.id!)
-        cache[v.id!] = data
-      }))
-      setDetallesCache(cache)
-    }
-
-    // Una fila por cada línea de producto vendido
-    const rows = ventasFiltradas.flatMap(v => {
-      const lineas = cache[v.id!] ?? []
-      const base = {
-        "N° Factura": v.numero_factura ?? "",
-        "Fecha": v.fecha_venta?.split('T')[0] ?? "",
-        "Cliente": v.cliente_nombre ?? "",
-        "Emprendimiento": v.emprendimiento_nombre ?? "",
-        "Almacén": v.almacen_nombre ?? "",
-        "Estado": v.estado_pago ?? "",
-        "Total Factura (L)": Number((v.total_venta ?? 0).toFixed(2)),
-      }
-      if (lineas.length === 0) return [{ ...base, "Producto": "", "Cantidad": 0, "Precio Unit. (L)": 0, "Subtotal Línea (L)": 0 }]
-      return lineas.map(d => ({
-        ...base,
-        "Producto": d.producto_nombre ?? "",
-        "Cantidad": d.cantidad ?? 0,
-        "Precio Unit. (L)": Number((d.precio_unitario ?? 0).toFixed(2)),
-        "Subtotal Línea (L)": Number(((d.cantidad ?? 0) * (d.precio_unitario ?? 0)).toFixed(2)),
-      }))
-    })
-
+    const rows = lineasFiltradas.map(l => ({
+      "Emprendimiento": l.emprendimiento_nombre ?? "",
+      "N° Factura": l.numero_factura ?? "",
+      "Fecha": l.fecha_venta?.split('T')[0] ?? "",
+      "Cliente": l.cliente_nombre ?? "",
+      "Almacén": l.almacen_nombre ?? "",
+      "Estado": l.estado_pago ?? "",
+      "Producto": l.producto_nombre ?? "",
+      "Código": l.codigo_barras ?? "",
+      "Cantidad": l.cantidad ?? 0,
+      "Precio Unit. (L)": Number((l.precio_unitario ?? 0).toFixed(2)),
+      "Subtotal Línea (L)": Number(((l.cantidad ?? 0) * (l.precio_unitario ?? 0)).toFixed(2)),
+    }))
     const ws = XLSX.utils.json_to_sheet(rows)
     ws["!cols"] = [
-      { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 22 }, { wch: 18 },
-      { wch: 12 }, { wch: 16 }, { wch: 26 }, { wch: 10 }, { wch: 16 }, { wch: 18 },
+      { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 18 },
+      { wch: 12 }, { wch: 28 }, { wch: 14 }, { wch: 8 }, { wch: 16 }, { wch: 18 },
     ]
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Facturas por Producto")
-    XLSX.writeFile(wb, `Facturas_Detalle_${new Date().toISOString().split('T')[0]}.xlsx`)
+    XLSX.utils.book_append_sheet(wb, ws, "Historial por Línea")
+    XLSX.writeFile(wb, `Historial_Lineas_${new Date().toISOString().split('T')[0]}.xlsx`)
     toast({ title: "Exportado", description: "Archivo Excel generado correctamente" })
   }
 
@@ -706,7 +700,7 @@ export default function HistorialVentasPage() {
                   <Button
                     className="flex-1 gap-2 bg-stone-800 hover:bg-stone-900 text-white"
                     onClick={exportFacturasToExcel}
-                    disabled={ventasFiltradas.length === 0}
+                    disabled={lineasFiltradas.length === 0}
                   >
                     <FileSpreadsheet className="h-4 w-4" />
                     Excel
@@ -718,95 +712,47 @@ export default function HistorialVentasPage() {
 
           {/* Mobile */}
           <div className="block md:hidden space-y-3">
-            {ventasFiltradas.length === 0 ? (
-              <Card className="p-8 text-center text-muted-foreground rounded-2xl">No hay ventas registradas</Card>
-            ) : ventasFiltradas.map(venta => {
-              const saldo = (venta.total_venta ?? 0) - (venta.valorpago ?? 0)
-              const saldoColor =
-                saldo <= 0 ? "text-emerald-600"
-                : saldo < (venta.total_venta ?? 0) ? "text-amber-600"
-                : "text-red-600"
-              const isExpanded = expandedVentaIds.has(venta.id!)
-              const isLoadingDetalle = loadingDetalleIds.has(venta.id!)
-              const lineas = detallesCache[venta.id!] ?? []
-              return (
-                <Card key={venta.id} className="rounded-2xl shadow-sm border border-stone-200">
-                  <div className="p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <p className="font-mono font-medium text-primary">{venta.numero_factura}</p>
-                        <p className="text-xs text-muted-foreground">{venta.fecha_venta?.split('T')[0] || ''}</p>
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        {getEstadoBadge(venta.estado_pago)}
-                        {getMetodoPagoBadge(venta.id)}
-                      </div>
+            {lineasFiltradas.length === 0 ? (
+              <Card className="p-8 text-center text-muted-foreground rounded-2xl">No hay líneas de venta registradas</Card>
+            ) : lineasFiltradas.map(linea => (
+              <Card key={linea.detalle_id} className="rounded-2xl shadow-sm border border-stone-200">
+                <div className="p-4">
+                  <div className="flex justify-between items-start mb-1">
+                    <div>
+                      <p className="font-mono font-medium text-primary text-sm">{linea.numero_factura}</p>
+                      <p className="text-xs text-muted-foreground">{linea.fecha_venta?.split('T')[0] || ''}</p>
                     </div>
-                    <p className="text-sm truncate mb-1">{venta.cliente_nombre}</p>
-                    {venta.emprendimiento_nombre && (
-                      <p className="text-xs text-stone-500 truncate mb-2">
-                        Emprendimiento: <span className="font-medium text-stone-700">{venta.emprendimiento_nombre}</span>
-                      </p>
-                    )}
-                    <div className="flex justify-between items-center gap-3">
-                      <div className="min-w-0">
-                        <p className="font-bold text-base leading-tight">L {(venta.total_venta ?? 0).toFixed(2)}</p>
-                        <p className={`text-xs font-medium ${saldoColor}`}>
-                          Saldo: L {Math.max(0, saldo).toFixed(2)}
-                        </p>
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        <Button
-                          variant="ghost" size="icon" className="h-8 w-8"
-                          onClick={() => toggleExpandVenta(venta.id!)}
-                          title={isExpanded ? "Ocultar productos" : "Ver productos"}
-                        >
-                          {isLoadingDetalle
-                            ? <Loader2 className="h-4 w-4 animate-spin" />
-                            : isExpanded
-                              ? <ChevronDown className="h-4 w-4" />
-                              : <ChevronRight className="h-4 w-4" />
-                          }
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => viewDetalle(venta)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => generatePdf(venta)}>
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost" size="icon"
-                          className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => setVentaAEliminar(venta)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
+                    {getEstadoBadge(linea.estado_pago)}
+                  </div>
+                  {linea.emprendimiento_nombre && (
+                    <p className="text-xs font-semibold text-amber-700 bg-amber-50 rounded px-1.5 py-0.5 inline-block mb-1">
+                      {linea.emprendimiento_nombre}
+                    </p>
+                  )}
+                  <p className="text-sm font-medium text-stone-800 truncate">{linea.producto_nombre}</p>
+                  <p className="text-xs text-stone-500 truncate mb-2">{linea.cliente_nombre}</p>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-xs text-stone-500">{linea.cantidad} × L {(linea.precio_unitario ?? 0).toFixed(2)}</p>
+                      <p className="font-bold text-base">L {((linea.cantidad ?? 0) * (linea.precio_unitario ?? 0)).toFixed(2)}</p>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button variant="ghost" size="icon" className="h-8 w-8"
+                        onClick={() => { const v = ventas.find(x => x.id === linea.venta_id); if (v) generatePdf(v) }}
+                        title="Descargar PDF de la factura">
+                        <Download className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon"
+                        className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        onClick={() => setLineaAEliminar(linea)}
+                        title="Eliminar esta línea">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
-
-                  {/* Detalle expandido mobile */}
-                  {isExpanded && lineas.length > 0 && (
-                    <div className="border-t border-stone-100 px-4 py-3 bg-stone-50/60 rounded-b-2xl">
-                      <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">
-                        Productos ({lineas.length})
-                      </p>
-                      <div className="space-y-2">
-                        {lineas.map((d, idx) => (
-                          <div key={idx} className="flex justify-between items-start gap-2 text-sm">
-                            <span className="font-medium text-stone-700 leading-tight">{d.producto_nombre}</span>
-                            <div className="text-right shrink-0 text-xs text-stone-500">
-                              <p>{d.cantidad} × L {(d.precio_unitario ?? 0).toFixed(2)}</p>
-                              <p className="font-medium text-stone-700">L {((d.cantidad ?? 0) * (d.precio_unitario ?? 0)).toFixed(2)}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </Card>
-              )
-            })}
+                </div>
+              </Card>
+            ))}
           </div>
 
           {/* Desktop */}
@@ -815,123 +761,57 @@ export default function HistorialVentasPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-stone-50 border-b border-stone-200">
-                    <TableHead className="w-8" />
-                    <TableHead className="font-semibold text-stone-700">N° Factura</TableHead>
-                    <TableHead className="font-semibold text-stone-700">Fecha</TableHead>
-                    <TableHead className="font-semibold text-stone-700">Cliente</TableHead>
                     <TableHead className="font-semibold text-stone-700">Emprendimiento</TableHead>
-                    <TableHead className="font-semibold text-stone-700">Almacén</TableHead>
-                    <TableHead className="font-semibold text-stone-700 text-right">Total</TableHead>
-                    <TableHead className="font-semibold text-stone-700 text-right">Saldo Pendiente</TableHead>
-                    <TableHead className="font-semibold text-stone-700">Estado Pago</TableHead>
-                    <TableHead className="font-semibold text-stone-700">Metodo</TableHead>
+                    <TableHead className="font-semibold text-stone-700">Fecha</TableHead>
+                    <TableHead className="font-semibold text-stone-700">N° Factura</TableHead>
+                    <TableHead className="font-semibold text-stone-700">Cliente</TableHead>
+                    <TableHead className="font-semibold text-stone-700">Producto</TableHead>
+                    <TableHead className="font-semibold text-stone-700 text-right">Cant.</TableHead>
+                    <TableHead className="font-semibold text-stone-700 text-right">Precio Unit.</TableHead>
+                    <TableHead className="font-semibold text-stone-700 text-right">Subtotal</TableHead>
+                    <TableHead className="font-semibold text-stone-700">Estado</TableHead>
                     <TableHead className="font-semibold text-stone-700 text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {ventasFiltradas.length === 0 ? (
+                  {lineasFiltradas.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center text-muted-foreground py-10">
-                        No hay ventas para mostrar
+                      <TableCell colSpan={10} className="text-center text-muted-foreground py-10">
+                        No hay líneas de venta para mostrar
                       </TableCell>
                     </TableRow>
-                  ) : ventasFiltradas.map(venta => {
-                    const saldo = (venta.total_venta ?? 0) - (venta.valorpago ?? 0)
-                    const isExpanded = expandedVentaIds.has(venta.id!)
-                    const isLoadingDetalle = loadingDetalleIds.has(venta.id!)
-                    const lineas = detallesCache[venta.id!] ?? []
-                    return (
-                      <React.Fragment key={venta.id}>
-                        <TableRow className={`hover:bg-stone-50/50 ${isExpanded ? "bg-stone-50/40" : ""}`}>
-                          <TableCell className="w-8 pl-3">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() => toggleExpandVenta(venta.id!)}
-                              title={isExpanded ? "Ocultar detalle" : "Ver detalle de productos"}
-                            >
-                              {isLoadingDetalle
-                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                : isExpanded
-                                  ? <ChevronDown className="h-3.5 w-3.5" />
-                                  : <ChevronRight className="h-3.5 w-3.5" />
-                              }
-                            </Button>
-                          </TableCell>
-                          <TableCell className="font-mono font-medium">{venta.numero_factura}</TableCell>
-                          <TableCell>{venta.fecha_venta?.split('T')[0] || ''}</TableCell>
-                          <TableCell>{venta.cliente_nombre}</TableCell>
-                          <TableCell className="font-medium text-stone-700">{venta.emprendimiento_nombre || <span className="text-stone-400">—</span>}</TableCell>
-                          <TableCell className="text-muted-foreground">{venta.almacen_nombre || '-'}</TableCell>
-                          <TableCell className="text-right font-medium">L {(venta.total_venta ?? 0).toFixed(2)}</TableCell>
-                          <TableCell
-                            className={`text-right font-medium ${
-                              saldo <= 0 ? "text-emerald-600"
-                              : saldo < (venta.total_venta ?? 0) ? "text-amber-600"
-                              : "text-red-600"
-                            }`}
-                          >
-                            L {Math.max(0, saldo).toFixed(2)}
-                          </TableCell>
-                          <TableCell>{getEstadoBadge(venta.estado_pago)}</TableCell>
-                          <TableCell>{getMetodoPagoBadge(venta.id)}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-1">
-                              <Button variant="ghost" size="icon" onClick={() => viewDetalle(venta)} title="Ver detalle completo">
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="icon" onClick={() => generatePdf(venta)} title="Descargar PDF">
-                                <Download className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                onClick={() => setVentaAEliminar(venta)}
-                                title="Eliminar venta"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-
-                        {/* Fila expandida con detalle de productos */}
-                        {isExpanded && (
-                          <TableRow className="bg-stone-50/60 hover:bg-stone-50/60">
-                            <TableCell colSpan={11} className="py-0 pl-12 pr-4">
-                              <div className="py-3 border-l-2 border-primary/30 pl-4">
-                                <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">
-                                  Detalle de productos — {lineas.length} línea{lineas.length !== 1 ? "s" : ""}
-                                </p>
-                                <table className="w-full text-sm">
-                                  <thead>
-                                    <tr className="text-xs text-stone-500 border-b border-stone-200">
-                                      <th className="text-left font-medium pb-1.5">Producto</th>
-                                      <th className="text-right font-medium pb-1.5 w-16">Cant.</th>
-                                      <th className="text-right font-medium pb-1.5 w-28">Precio Unit.</th>
-                                      <th className="text-right font-medium pb-1.5 w-28">Subtotal</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-stone-100">
-                                    {lineas.map((d, idx) => (
-                                      <tr key={idx} className="text-stone-700">
-                                        <td className="py-1.5 pr-4 font-medium">{d.producto_nombre}</td>
-                                        <td className="py-1.5 text-right text-stone-500">{d.cantidad}</td>
-                                        <td className="py-1.5 text-right text-stone-500">L {(d.precio_unitario ?? 0).toFixed(2)}</td>
-                                        <td className="py-1.5 text-right font-medium">L {((d.cantidad ?? 0) * (d.precio_unitario ?? 0)).toFixed(2)}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </React.Fragment>
-                    )
-                  })}
+                  ) : lineasFiltradas.map(linea => (
+                    <TableRow key={linea.detalle_id} className="hover:bg-stone-50/50">
+                      <TableCell>
+                        {linea.emprendimiento_nombre
+                          ? <span className="font-medium text-amber-700">{linea.emprendimiento_nombre}</span>
+                          : <span className="text-stone-400">—</span>}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-stone-600">{linea.fecha_venta?.split('T')[0] || ''}</TableCell>
+                      <TableCell className="font-mono font-medium whitespace-nowrap">{linea.numero_factura}</TableCell>
+                      <TableCell className="text-stone-600">{linea.cliente_nombre}</TableCell>
+                      <TableCell className="font-medium text-stone-800">{linea.producto_nombre}</TableCell>
+                      <TableCell className="text-right text-stone-600">{linea.cantidad}</TableCell>
+                      <TableCell className="text-right text-stone-600 whitespace-nowrap">L {(linea.precio_unitario ?? 0).toFixed(2)}</TableCell>
+                      <TableCell className="text-right font-medium whitespace-nowrap">L {((linea.cantidad ?? 0) * (linea.precio_unitario ?? 0)).toFixed(2)}</TableCell>
+                      <TableCell>{getEstadoBadge(linea.estado_pago)}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button variant="ghost" size="icon"
+                            onClick={() => { const v = ventas.find(x => x.id === linea.venta_id); if (v) generatePdf(v) }}
+                            title="Descargar PDF de la factura">
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => setLineaAEliminar(linea)}
+                            title="Eliminar esta línea">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </CardContent>
@@ -1269,11 +1149,10 @@ export default function HistorialVentasPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Confirmacion de eliminacion de venta */}
+      {/* Confirmacion de eliminacion de venta completa */}
       <AlertDialog
         open={ventaAEliminar !== null}
         onOpenChange={(open) => {
-          // Evitamos cerrar el modal mientras la RPC esta corriendo.
           if (!open && !deletingVenta) setVentaAEliminar(null)
         }}
       >
@@ -1294,9 +1173,6 @@ export default function HistorialVentasPage() {
             <AlertDialogCancel disabled={deletingVenta}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
-                // Prevenimos el cierre automatico para mantener el loading
-                // visible hasta que la RPC responda; el cierre lo maneja
-                // handleEliminarVenta al limpiar `ventaAEliminar`.
                 e.preventDefault()
                 handleEliminarVenta()
               }}
@@ -1304,15 +1180,57 @@ export default function HistorialVentasPage() {
               className="bg-red-600 hover:bg-red-700 focus-visible:ring-red-600"
             >
               {deletingVenta ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Eliminando...
-                </>
+                <><Loader2 className="h-4 w-4 animate-spin" />Eliminando...</>
               ) : (
+                <><Trash2 className="h-4 w-4" />Eliminar venta</>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmacion de eliminacion de línea */}
+      <AlertDialog
+        open={lineaAEliminar !== null}
+        onOpenChange={(open) => {
+          if (!open && !deletingLinea) setLineaAEliminar(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-red-600">Eliminar línea de venta</AlertDialogTitle>
+            <AlertDialogDescription>
+              {lineaAEliminar && (
                 <>
-                  <Trash2 className="h-4 w-4" />
-                  Eliminar venta
+                  <span className="block font-medium text-stone-800 mb-1">
+                    {lineaAEliminar.producto_nombre} — {lineaAEliminar.cantidad} unid.
+                  </span>
+                  <span className="block text-sm">
+                    Factura <span className="font-mono">{lineaAEliminar.numero_factura}</span>
+                    {lineaAEliminar.emprendimiento_nombre && ` · ${lineaAEliminar.emprendimiento_nombre}`}
+                  </span>
                 </>
+              )}
+              <span className="block mt-2">
+                Esta acción eliminará la línea, revertirá el movimiento de inventario y
+                ajustará los totales de la factura. Es irreversible.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingLinea}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleEliminarLinea()
+              }}
+              disabled={deletingLinea}
+              className="bg-red-600 hover:bg-red-700 focus-visible:ring-red-600"
+            >
+              {deletingLinea ? (
+                <><Loader2 className="h-4 w-4 animate-spin" />Eliminando...</>
+              ) : (
+                <><Trash2 className="h-4 w-4" />Eliminar línea</>
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
