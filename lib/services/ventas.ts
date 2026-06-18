@@ -2,6 +2,7 @@ import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from '@/lib/services/tenant-stamp'
 import { registrarMovimientoCaja, getSesionAbierta } from '@/lib/services/caja-chica'
 import { registrarMovimientoCuenta } from '@/lib/services/cuentas'
+import { getHondurasNowISO } from '@/lib/utils/honduras-time'
 
 // ==================== INTERFACES ====================
 
@@ -502,7 +503,7 @@ export async function crearVenta(
     const newVenta: VentaEncabezado = { 
       ...data.encabezado, 
       id: Date.now(),
-      fecha_venta: new Date().toISOString()
+      fecha_venta: getHondurasNowISO()
     }
     ventas.push(newVenta)
     localStorage.setItem('ventas_encabezado', JSON.stringify(ventas))
@@ -535,7 +536,7 @@ export async function crearVenta(
         cantidad: -detalle.cantidad,
         costo_o_precio_unitario: detalle.costo_promedio_momento,
         referencia_id: newVenta.id!,
-        fecha: new Date().toISOString()
+        fecha: getHondurasNowISO()
       })
     }
     
@@ -710,7 +711,7 @@ export async function crearVenta(
         .from('productos')
         .update({
           stock_total: nuevoStock,
-          updated_at: new Date().toISOString()
+          updated_at: getHondurasNowISO()
         })
         .eq('id', detalle.producto_id)
 
@@ -879,7 +880,7 @@ export async function registrarPago(
     const newPago: PagoVenta = { 
       ...pago, 
       id: Date.now(),
-      fecha_pago: new Date().toISOString()
+      fecha_pago: getHondurasNowISO()
     }
     pagos.push(newPago)
     localStorage.setItem('pagos_ventas', JSON.stringify(pagos))
@@ -1814,7 +1815,7 @@ export async function eliminarVentaCompletamente(
           .from('productos')
           .update({
             stock_total: (prod.stock_total || 0) + (linea.cantidad || 0),
-            updated_at: new Date().toISOString(),
+            updated_at: getHondurasNowISO(),
           })
           .eq('id', linea.producto_id)
           .eq('razon_social_id', stamp.razon_social_id)
@@ -1966,7 +1967,7 @@ export async function eliminarLineaVenta(
         .from('productos')
         .update({
           stock_total: (prod.stock_total || 0) + (cantidad || 0),
-          updated_at: new Date().toISOString(),
+          updated_at: getHondurasNowISO(),
         })
         .eq('id', productoId)
         .eq('razon_social_id', stamp.razon_social_id)
@@ -2015,7 +2016,7 @@ export async function eliminarLineaVenta(
           subtotal: +subtotalNuevo.toFixed(2),
           impuesto_total: +isvNuevo.toFixed(2),
           total_venta: +totalNuevo.toFixed(2),
-          updated_at: new Date().toISOString(),
+          updated_at: getHondurasNowISO(),
         })
         .eq('id', ventaId)
         .eq('razon_social_id', stamp.razon_social_id)
@@ -2036,9 +2037,16 @@ export interface VentaEmprendedor {
   producto_nombre: string
   codigo_barras: string
   cantidad: number
+  /**
+   * Precio unitario directo de ventas_detalle.
+   * Para ventas con comisión bancaria (comisionbanc > 0) este valor ya está
+   * guardado como precio neto (precio_cliente × (1 - comision/100)).
+   * Para ventas sin comisión es el precio bruto del cliente.
+   * En ambos casos es el mismo valor que muestra el historial del portal admin.
+   */
   precio_unitario: number
-  subtotal: number      // bruto: cantidad × precio_unitario
-  subtotal_neto: number // neto: descontada la comisión bancaria proporcional
+  subtotal: number      // cantidad × precio_unitario
+  subtotal_neto: number // igual a subtotal — no se aplica factor adicional
   numero_factura: string
 }
 
@@ -2057,7 +2065,7 @@ export async function getVentasByEmprendimiento(
         cantidad,
         precio_unitario,
         productos!inner(id, nombre, codigo_barras, emprendimiento_id),
-        ventas_encabezado!inner(fecha_venta, numero_factura, subtotal, total_venta)
+        ventas_encabezado!inner(fecha_venta, numero_factura)
       `)
       .eq('productos.emprendimiento_id', emprendimientoId)
       .gte('ventas_encabezado.fecha_venta', desde)
@@ -2073,11 +2081,7 @@ export async function getVentasByEmprendimiento(
       const encabezado = Array.isArray(row.ventas_encabezado)
         ? row.ventas_encabezado[0]
         : row.ventas_encabezado
-      const productoSubtotal = (row.cantidad ?? 0) * (row.precio_unitario ?? 0)
-      const encSubtotal   = Number(encabezado?.subtotal   ?? 0)
-      const encTotalVenta = Number(encabezado?.total_venta ?? 0)
-      // Factor de comisión proporcional al total de la venta
-      const factor = encSubtotal > 0 ? encTotalVenta / encSubtotal : 1
+      const productoSubtotal = +((row.cantidad ?? 0) * (row.precio_unitario ?? 0)).toFixed(2)
       return {
         fecha_venta: encabezado?.fecha_venta ?? '',
         producto_id: producto?.id ?? 0,
@@ -2086,7 +2090,7 @@ export async function getVentasByEmprendimiento(
         cantidad: row.cantidad ?? 0,
         precio_unitario: row.precio_unitario ?? 0,
         subtotal: productoSubtotal,
-        subtotal_neto: +( productoSubtotal * factor ).toFixed(2),
+        subtotal_neto: productoSubtotal,
         numero_factura: encabezado?.numero_factura ?? '',
       }
     })

@@ -27,6 +27,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Table,
   TableBody,
   TableCell,
@@ -36,8 +42,8 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
-import { toast } from "sonner"
-import { Download, Upload, Send, FileSpreadsheet, CalendarClock, ChevronLeft, ChevronRight } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+import { Download, Upload, Send, FileSpreadsheet, CalendarClock, ChevronLeft, ChevronRight, Search, X } from "lucide-react"
 import { format, subDays, differenceInDays, parseISO } from "date-fns"
 import { es } from "date-fns/locale"
 
@@ -104,6 +110,7 @@ function DiasSinVentaBadge({ dias }: { dias: number | null }) {
 
 export default function InventarioPage() {
   const { emprendedor } = useEmprendedorAuth()
+  const { toast } = useToast()
   const [stock, setStock] = React.useState<StockEmprendedor[]>([])
   const [stockLoading, setStockLoading] = React.useState(true)
   const [stockPage, setStockPage] = React.useState(1)
@@ -114,7 +121,12 @@ export default function InventarioPage() {
   /* mapa producto_id → días desde última venta (null = nunca vendido) */
   const [diasSinVenta, setDiasSinVenta] = React.useState<Record<number, number | null>>({})
 
-  const [productoSeleccionado, setProductoSeleccionado] = React.useState("")
+  /* ── Búsqueda de producto individual ── */
+  const [busqueda, setBusqueda] = React.useState("")
+  const [resultados, setResultados] = React.useState<StockEmprendedor[]>([])
+  const [modalAbierto, setModalAbierto] = React.useState(false)
+  const [productoSeleccionado, setProductoSeleccionado] = React.useState<StockEmprendedor | null>(null)
+
   const [cantidad, setCantidad] = React.useState("")
   const [costo, setCosto] = React.useState("")
   const [almacenId, setAlmacenId] = React.useState("")
@@ -168,26 +180,44 @@ export default function InventarioPage() {
 
   React.useEffect(() => { cargar() }, [cargar])
 
+  const buscarProducto = () => {
+    const q = busqueda.trim().toLowerCase()
+    if (!q) return
+    const found = stock.filter(
+      (p) =>
+        p.nombre.toLowerCase().includes(q) ||
+        (p.codigo_barras ?? "").toLowerCase().includes(q)
+    )
+    setResultados(found)
+    setModalAbierto(true)
+  }
+
+  const seleccionarProducto = (p: StockEmprendedor) => {
+    setProductoSeleccionado(p)
+    setModalAbierto(false)
+    setBusqueda("")
+  }
+
   const enviarIngreso = async () => {
     if (!emprendedor) return
     if (!productoSeleccionado || !cantidad || !almacenId) {
-      toast.error("Producto, cantidad y almacén son requeridos")
+      toast({ title: "Campos requeridos", description: "Producto, cantidad y almacén son requeridos", variant: "destructive" })
       return
     }
     setSending(true)
     const { error } = await submitIngresoPendiente({
       emprendimiento_id: emprendedor.emprendimientoId,
       razon_social_id:   emprendedor.razonSocialId,
-      producto_id:       Number(productoSeleccionado),
+      producto_id:       productoSeleccionado.producto_id,
       almacen_id:        Number(almacenId),
       cantidad:          parseFloat(cantidad),
       costo_unitario:    costo ? parseFloat(costo) : null,
       usuario:           emprendedor.usuario,
     })
     setSending(false)
-    if (error) { toast.error(`Error: ${error}`); return }
-    toast.success("Ingreso enviado para aprobación")
-    setProductoSeleccionado(""); setCantidad(""); setCosto(""); setAlmacenId("")
+    if (error) { toast({ title: "Error", description: error, variant: "destructive" }); return }
+    toast({ title: "Enviado", description: "Ingreso enviado para aprobación" })
+    setProductoSeleccionado(null); setCantidad(""); setCosto(""); setAlmacenId(""); setBusqueda("")
     cargar()
   }
 
@@ -219,9 +249,9 @@ export default function InventarioPage() {
       emprendedor.usuario, almacenId ? Number(almacenId) : null
     )
     setExcelSending(false)
-    if (error) { toast.error(`Error: ${error}`); return }
-    if (rowErrors.length > 0) toast.error(rowErrors.join(" | "))
-    if (insertados > 0) toast.success(`${insertados} registros enviados para aprobación`)
+    if (error) { toast({ title: "Error", description: error, variant: "destructive" }); return }
+    if (rowErrors.length > 0) toast({ title: "Algunos registros fallaron", description: rowErrors.join(" | "), variant: "destructive" })
+    if (insertados > 0) toast({ title: "Enviado", description: `${insertados} registros enviados para aprobación` })
     setExcelRows([]); setExcelErrors([]); setExcelFileName("")
     if (fileRef.current) fileRef.current.value = ""
     cargar()
@@ -383,30 +413,69 @@ export default function InventarioPage() {
           <div className="rounded-2xl bg-white border border-stone-200/60 p-5 shadow-sm"
             style={{ boxShadow: "0 1px 3px rgba(120,53,15,0.08)" }}>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg">
+
+              {/* Buscador de producto */}
               <div className="sm:col-span-2">
                 <Label className="text-stone-600">Producto *</Label>
-                <Select value={productoSeleccionado} onValueChange={setProductoSeleccionado}>
-                  <SelectTrigger><SelectValue placeholder="Selecciona un producto" /></SelectTrigger>
-                  <SelectContent>
-                    {stock.map((p) => (
-                      <SelectItem key={p.producto_id} value={String(p.producto_id)}>
-                        {p.nombre} ({p.codigo_barras})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {productoSeleccionado ? (
+                  <div className="mt-1 flex items-center gap-3 px-3 py-2.5 rounded-xl border border-green-200 bg-green-50">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-stone-800 text-sm truncate">{productoSeleccionado.nombre}</p>
+                      <p className="text-xs text-stone-500 mt-0.5">
+                        {productoSeleccionado.codigo_barras ?? "Sin código"} · Stock actual: <span className={productoSeleccionado.stock_total === 0 ? "font-bold text-red-600" : "font-bold"}>{productoSeleccionado.stock_total}</span>
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setProductoSeleccionado(null)}
+                      className="shrink-0 text-stone-400 hover:text-stone-700 transition-colors"
+                      title="Cambiar producto"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mt-1 flex gap-2">
+                    <Input
+                      placeholder="Código de barras o nombre del producto…"
+                      value={busqueda}
+                      onChange={(e) => setBusqueda(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") buscarProducto() }}
+                      className="border-stone-200"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={buscarProducto}
+                      disabled={!busqueda.trim() || stockLoading}
+                      className="shrink-0 border-stone-200 text-stone-700 hover:bg-stone-50"
+                      title="Buscar producto"
+                    >
+                      <Search className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
+
               <div>
                 <Label className="text-stone-600">Cantidad *</Label>
-                <Input type="number" min={1} value={cantidad} onChange={(e) => setCantidad(e.target.value)} />
+                <Input
+                  type="number" min={1}
+                  value={cantidad}
+                  onChange={(e) => setCantidad(e.target.value)}
+                  disabled={!productoSeleccionado}
+                />
               </div>
               <div>
                 <Label className="text-stone-600">Costo unitario</Label>
-                <Input type="number" min={0} value={costo} onChange={(e) => setCosto(e.target.value)} />
+                <Input
+                  type="number" min={0}
+                  value={costo}
+                  onChange={(e) => setCosto(e.target.value)}
+                  disabled={!productoSeleccionado}
+                />
               </div>
               <div className="sm:col-span-2">
                 <Label className="text-stone-600">Almacén destino *</Label>
-                <Select value={almacenId} onValueChange={setAlmacenId}>
+                <Select value={almacenId} onValueChange={setAlmacenId} disabled={!productoSeleccionado}>
                   <SelectTrigger><SelectValue placeholder="Seleccionar almacén" /></SelectTrigger>
                   <SelectContent>
                     {almacenes.map((a) => (
@@ -416,13 +485,42 @@ export default function InventarioPage() {
                 </Select>
               </div>
             </div>
-            <Button className="mt-4" onClick={enviarIngreso} disabled={sending}
+            <Button className="mt-4" onClick={enviarIngreso} disabled={sending || !productoSeleccionado}
               style={{ background: "#78350f", color: "#fff" }}>
               <Send className="h-4 w-4 mr-2" />
               {sending ? "Enviando…" : "Enviar para aprobación"}
             </Button>
           </div>
         </TabsContent>
+
+        {/* ── Modal de resultados de búsqueda ──────────── */}
+        <Dialog open={modalAbierto} onOpenChange={setModalAbierto}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Seleccionar producto</DialogTitle>
+            </DialogHeader>
+            {resultados.length === 0 ? (
+              <div className="py-8 text-center text-stone-500 text-sm">
+                Sin resultados para <span className="font-medium">"{busqueda}"</span>
+              </div>
+            ) : (
+              <div className="space-y-1 max-h-80 overflow-y-auto pr-1">
+                {resultados.map((p) => (
+                  <button
+                    key={p.producto_id}
+                    onClick={() => seleccionarProducto(p)}
+                    className="w-full text-left px-3 py-2.5 rounded-xl border border-transparent hover:border-amber-200 hover:bg-amber-50/60 transition-all"
+                  >
+                    <p className="font-medium text-sm text-stone-800">{p.nombre}</p>
+                    <p className="text-xs text-stone-500 mt-0.5">
+                      {p.codigo_barras ?? "Sin código"} · Stock: <span className={p.stock_total === 0 ? "font-bold text-red-600" : "font-bold text-stone-700"}>{p.stock_total}</span>
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         {/* ── Tab Excel ─────────────────────────────────── */}
         <TabsContent value="excel" className="mt-4 space-y-4">

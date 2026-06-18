@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { ExcelProductoRow } from "@/lib/utils/excel-parsers"
+import { getHondurasNowISO } from "@/lib/utils/honduras-time"
 
 export interface ProductoPendiente {
   id?: number
@@ -242,7 +243,7 @@ export async function aprobarProductoPendiente(
 
   await supabase
     .from("productos_pendientes")
-    .update({ estado: "aprobado", updated_at: new Date().toISOString() })
+    .update({ estado: "aprobado", updated_at: getHondurasNowISO() })
     .eq("id", id)
 
   return { error: null }
@@ -257,7 +258,7 @@ export async function rechazarProductoPendiente(
 
   const { error } = await supabase
     .from("productos_pendientes")
-    .update({ estado: "rechazado", motivo_rechazo: motivo, updated_at: new Date().toISOString() })
+    .update({ estado: "rechazado", motivo_rechazo: motivo, updated_at: getHondurasNowISO() })
     .eq("id", id)
 
   return { error: error?.message ?? null }

@@ -148,7 +148,7 @@ export default function VentasEmprendedorPage() {
       Fecha: format(new Date(v.fecha_venta), "dd/MM/yyyy HH:mm"),
       Factura: v.numero_factura,
       Producto: v.producto_nombre,
-      Codigo: v.codigo_barras,
+      "Código de Barras": v.codigo_barras,
       Cantidad: v.cantidad,
       "Precio Unitario": v.precio_unitario,
       Subtotal: v.subtotal_neto,
@@ -336,29 +336,31 @@ export default function VentasEmprendedorPage() {
                     <TableHead className="text-stone-500">Fecha</TableHead>
                     <TableHead className="text-stone-500">Factura</TableHead>
                     <TableHead className="text-stone-500">Producto</TableHead>
+                    <TableHead className="text-stone-500">Código</TableHead>
                     <TableHead className="text-right text-stone-500">Cant.</TableHead>
                     <TableHead className="text-right text-stone-500">Precio unit.</TableHead>
-                    <TableHead className="text-right text-stone-500">Subtotal neto</TableHead>
+                    <TableHead className="text-right text-stone-500">Subtotal</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {ventasPagina.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center text-stone-400 py-10">
+                      <TableCell colSpan={7} className="text-center text-stone-400 py-10">
                         {busqueda ? "Sin resultados para la búsqueda" : "Sin ventas en el período seleccionado"}
                       </TableCell>
                     </TableRow>
                   ) : (
                     ventasPagina.map((v, i) => (
                       <TableRow key={i} className="hover:bg-stone-50/60">
-                        <TableCell className="text-sm text-stone-600">
+                        <TableCell className="text-sm text-stone-600 whitespace-nowrap">
                           {format(new Date(v.fecha_venta), "dd/MM/yyyy")}
                         </TableCell>
-                        <TableCell className="font-mono text-sm text-stone-500">{v.numero_factura}</TableCell>
+                        <TableCell className="font-mono text-xs text-stone-500">{v.numero_factura}</TableCell>
                         <TableCell className="font-medium text-stone-700">{v.producto_nombre}</TableCell>
+                        <TableCell className="font-mono text-xs text-stone-500">{v.codigo_barras || "—"}</TableCell>
                         <TableCell className="text-right text-stone-600">{v.cantidad}</TableCell>
-                        <TableCell className="text-right text-stone-600">{fmoney(v.precio_unitario)}</TableCell>
-                        <TableCell className="text-right font-semibold text-stone-800">{fmoney(v.subtotal_neto)}</TableCell>
+                        <TableCell className="text-right text-stone-600 whitespace-nowrap">{fmoney(v.precio_unitario)}</TableCell>
+                        <TableCell className="text-right font-semibold text-stone-800 whitespace-nowrap">{fmoney(v.subtotal_neto)}</TableCell>
                       </TableRow>
                     ))
                   )}

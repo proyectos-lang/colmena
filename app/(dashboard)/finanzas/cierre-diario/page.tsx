@@ -76,6 +76,7 @@ import {
   type PagoGastoRow,
   type GastoDelDia,
   type IngresoEfectivoDetalle,
+  type FacturaDelDia,
 } from "@/lib/services/cierre-diario"
 import { getRazonSocialForPdf } from "@/lib/services/ventas"
 
@@ -615,11 +616,11 @@ export default function CierreDiarioPage() {
       </div>
 
       {/* ----- 3 Tabs ----- */}
-      <Tabs defaultValue="bancos" className="space-y-4">
+      <Tabs defaultValue="facturas" className="space-y-4">
         <TabsList className="bg-stone-100">
-          <TabsTrigger value="bancos" className="gap-1.5">
-            <Landmark className="h-3.5 w-3.5" />
-            Bancos
+          <TabsTrigger value="facturas" className="gap-1.5">
+            <Receipt className="h-3.5 w-3.5" />
+            Facturas
           </TabsTrigger>
           <TabsTrigger value="productos" className="gap-1.5">
             <Package className="h-3.5 w-3.5" />
@@ -635,8 +636,9 @@ export default function CierreDiarioPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ===== Tab 1: Bancos ===== */}
-        <TabsContent value="bancos">
+        {/* ===== Tab 1: Facturas ===== */}
+        <TabsContent value="facturas" className="space-y-4">
+          <FacturasCard loading={loading} facturas={data?.facturas ?? []} />
           <BancosCard loading={loading} bancos={data?.bancos ?? []} />
         </TabsContent>
 
@@ -703,10 +705,158 @@ function formatHora(iso: string): string {
     return new Date(iso).toLocaleTimeString("es-HN", {
       hour: "2-digit",
       minute: "2-digit",
+      timeZone: "UTC",
     })
   } catch {
     return iso.slice(11, 16)
   }
+}
+
+const METODO_COLOR: Record<string, string> = {
+  Efectivo: "bg-emerald-100 text-emerald-800",
+  Banco: "bg-indigo-100 text-indigo-800",
+  Link_Pago: "bg-violet-100 text-violet-800",
+  Credito: "bg-amber-100 text-amber-800",
+}
+
+function MetodoBadge({ metodo }: { metodo: string }) {
+  const color = METODO_COLOR[metodo] ?? "bg-stone-100 text-stone-700"
+  const label =
+    metodo === "Link_Pago" ? "Link Pago" : metodo === "Credito" ? "Crédito" : metodo
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${color}`}>
+      {label}
+    </span>
+  )
+}
+
+function FacturasCard({
+  loading,
+  facturas,
+}: {
+  loading: boolean
+  facturas: FacturaDelDia[]
+}) {
+  const totalesPorMetodo = React.useMemo(() => {
+    const map = new Map<string, number>()
+    for (const f of facturas) {
+      for (const p of f.pagos) {
+        map.set(p.metodo_pago, (map.get(p.metodo_pago) ?? 0) + p.monto_bruto)
+      }
+    }
+    return map
+  }, [facturas])
+
+  const totalGeneral = React.useMemo(
+    () => facturas.reduce((acc, f) => acc + f.total_venta, 0),
+    [facturas]
+  )
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Facturas del Día</CardTitle>
+        <CardDescription>
+          Todos los ingresos de ventas: efectivo, banco y cualquier otro método registrado.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        {loading ? (
+          <div className="space-y-2 p-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : facturas.length === 0 ? (
+          <Empty className="border-0">
+            <EmptyHeader>
+              <Receipt className="h-8 w-8 text-stone-400" />
+              <EmptyTitle>Sin facturas</EmptyTitle>
+              <EmptyDescription>No se registraron ventas en esta fecha.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <div className="p-4 space-y-4">
+            {/* Resumen por método */}
+            <div className="flex flex-wrap gap-3 pb-3 border-b">
+              <div className="mr-4">
+                <p className="text-xs text-muted-foreground">Total Facturas</p>
+                <p className="text-lg font-semibold tabular-nums">{facturas.length}</p>
+              </div>
+              <div className="mr-4">
+                <p className="text-xs text-muted-foreground">Total General</p>
+                <p className="text-lg font-semibold tabular-nums text-emerald-700">
+                  {formatCurrency(totalGeneral)}
+                </p>
+              </div>
+              {Array.from(totalesPorMetodo.entries()).map(([metodo, total]) => (
+                <div key={metodo}>
+                  <p className="text-xs text-muted-foreground">
+                    {metodo === "Link_Pago" ? "Link Pago" : metodo === "Credito" ? "Crédito" : metodo}
+                  </p>
+                  <p className="text-sm font-semibold tabular-nums">{formatCurrency(total)}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Tabla de facturas */}
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Factura</TableHead>
+                    <TableHead>Hora</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Método(s)</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead>Estado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {facturas.map((f) => (
+                    <TableRow key={f.venta_id}>
+                      <TableCell className="font-mono text-xs">{f.numero_factura}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatHora(f.fecha_venta)}
+                      </TableCell>
+                      <TableCell className="text-sm max-w-[140px] truncate">
+                        {f.cliente_nombre ?? <span className="text-stone-400 italic">Contado</span>}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {f.pagos.length === 0 ? (
+                            <span className="text-xs text-stone-400">—</span>
+                          ) : (
+                            f.pagos.map((p, i) => <MetodoBadge key={i} metodo={p.metodo_pago} />)
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right font-medium tabular-nums whitespace-nowrap">
+                        {formatCurrency(f.total_venta)}
+                      </TableCell>
+                      <TableCell>
+                        <span
+                          className={`text-xs font-medium px-1.5 py-0.5 rounded ${
+                            f.estado_pago === "Pagado"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : f.estado_pago === "Pendiente"
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-stone-100 text-stone-700"
+                          }`}
+                        >
+                          {f.estado_pago}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
 }
 
 function BancosCard({

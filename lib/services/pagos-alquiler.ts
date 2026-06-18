@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/client"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { getHondurasNowISO } from "@/lib/utils/honduras-time"
 
 const MESES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -105,7 +106,7 @@ export async function registrarPagoAlquiler(
       notas: notas || null,
       estado: "pagado",
       usuario,
-      updated_at: new Date().toISOString(),
+      updated_at: getHondurasNowISO(),
     })
     .eq("id", id)
 
@@ -131,7 +132,7 @@ export async function revertirPagoAlquiler(
       notas: null,
       estado: "pendiente",
       usuario,
-      updated_at: new Date().toISOString(),
+      updated_at: getHondurasNowISO(),
     })
     .eq("id", id)
 

@@ -1,5 +1,6 @@
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from '@/lib/services/tenant-stamp'
+import { getHondurasNowISO } from '@/lib/utils/honduras-time'
 
 // ==================== INTERFACES ====================
 
@@ -375,7 +376,7 @@ export async function saveProducto(
       const { id, created_at, stock_total, costo_promedio, ...updateData } = cleanProducto
       const { data, error } = await supabase
         .from('productos')
-        .update({ ...updateData, updated_at: new Date().toISOString() })
+        .update({ ...updateData, updated_at: getHondurasNowISO() })
         .eq('id', id)
         .select()
         .single()
@@ -684,7 +685,7 @@ export async function updateSubcategoria(
       .update({
         nombre,
         descripcion: descripcion ?? null,
-        updated_at: new Date().toISOString(),
+        updated_at: getHondurasNowISO(),
       })
       .eq('id', id)
       .select()

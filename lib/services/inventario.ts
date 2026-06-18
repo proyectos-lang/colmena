@@ -1,5 +1,6 @@
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from '@/lib/services/tenant-stamp'
+import { getHondurasNowISO } from '@/lib/utils/honduras-time'
 
 // ==================== INTERFACES ====================
 
@@ -644,7 +645,7 @@ export async function procesarIngresoManual(data: IngresoManualData): Promise<{ 
     const savedProds = localStorage.getItem('productos')
     const productos = savedProds ? JSON.parse(savedProds) : []
     
-    const now = new Date().toISOString()
+    const now = getHondurasNowISO()
     
     // Insert transaction
     transacciones.push({
@@ -731,7 +732,7 @@ export async function procesarTraslado(data: TrasladoData): Promise<{ success: b
     const saved = localStorage.getItem('transacciones_inventario')
     const transacciones: TransaccionInventario[] = saved ? JSON.parse(saved) : []
     
-    const now = new Date().toISOString()
+    const now = getHondurasNowISO()
     const refId = Date.now()
     
     // Salida del origen
@@ -839,7 +840,7 @@ export async function procesarTrasladosMultiples(
     const saved = localStorage.getItem('transacciones_inventario')
     const transacciones: TransaccionInventario[] = saved ? JSON.parse(saved) : []
     
-    const now = new Date().toISOString()
+    const now = getHondurasNowISO()
     const refIdBase = Date.now()
     
     lineas.forEach((linea, index) => {
@@ -1026,7 +1027,7 @@ export async function procesarSalidaManual(data: SalidaManualData): Promise<{ su
       tipo_movimiento: 'Salida Manual',
       cantidad: -Math.abs(data.cantidad),
       costo_o_precio_unitario: 0,
-      fecha: new Date().toISOString(),
+      fecha: getHondurasNowISO(),
     })
 
     const prodIndex = productos.findIndex((p: { id: number }) => p.id === data.producto_id)

@@ -148,9 +148,34 @@ export interface CajaMovimientoRow {
   cuenta_destino_nombre?: string | null
 }
 
+export interface GastoDelDia {
+  id: number
+  fecha_gasto: string
+  monto: number
+  metodo_pago: string | null
+  descripcion: string | null
+  concepto_nombre: string | null
+}
+
+export interface FacturaDelDia {
+  venta_id: number
+  numero_factura: string
+  fecha_venta: string
+  cliente_nombre: string | null
+  total_venta: number
+  estado_pago: string
+  pagos: {
+    metodo_pago: string
+    monto_bruto: number
+    monto_neto: number
+    porcentaje_comision: number
+  }[]
+}
+
 export interface CierreDiarioData {
   resumen: CierreResumen
   bancos: DesgloseBanco[]
+  facturas: FacturaDelDia[]
   productos: ProductoVendido[]
   caja: {
     sesiones: CajaSesionRef[]
@@ -231,6 +256,7 @@ export async function getCierreDiario(fechaISO: string): Promise<{
       ingresos_efectivo_manual: 0,
     },
     bancos: [],
+    facturas: [],
     productos: [],
     caja: { sesiones: [], movimientos: [] },
     pagosGastos: [],
@@ -901,10 +927,52 @@ export async function getCierreDiario(fechaISO: string): Promise<{
     }
   }
 
+  // ---- Facturas del Dia (ventas_encabezado + ventas_pagos_detalle) --------
+  const facturas: FacturaDelDia[] = []
+  if (ventaIdsDelDia.length > 0) {
+    const [encabRes, pagosRes] = await Promise.all([
+      supabase
+        .from("ventas_encabezado")
+        .select("id, numero_factura, fecha_venta, total_venta, estado_pago, clientes:cliente_id(nombre)")
+        .in("id", ventaIdsDelDia)
+        .order("fecha_venta", { ascending: true }),
+      supabase
+        .from("ventas_pagos_detalle")
+        .select("venta_id, metodo_pago, monto_bruto, monto_neto, porcentaje_comision")
+        .in("venta_id", ventaIdsDelDia),
+    ])
+
+    const pagosByVenta = new Map<number, FacturaDelDia["pagos"]>()
+    for (const p of pagosRes.data || []) {
+      const entry = pagosByVenta.get(p.venta_id) ?? []
+      entry.push({
+        metodo_pago: p.metodo_pago,
+        monto_bruto: Number(p.monto_bruto || 0),
+        monto_neto: Number(p.monto_neto || 0),
+        porcentaje_comision: Number(p.porcentaje_comision || 0),
+      })
+      pagosByVenta.set(p.venta_id, entry)
+    }
+
+    for (const e of encabRes.data || []) {
+      const cliente = Array.isArray(e.clientes) ? e.clientes[0] : e.clientes
+      facturas.push({
+        venta_id: e.id,
+        numero_factura: e.numero_factura,
+        fecha_venta: e.fecha_venta,
+        cliente_nombre: (cliente as { nombre?: string | null } | null)?.nombre ?? null,
+        total_venta: Number(e.total_venta || 0),
+        estado_pago: e.estado_pago,
+        pagos: pagosByVenta.get(e.id) ?? [],
+      })
+    }
+  }
+
   return {
     data: {
       resumen,
       bancos,
+      facturas,
       productos,
       caja: { sesiones, movimientos },
       pagosGastos,

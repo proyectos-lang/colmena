@@ -4,6 +4,7 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/client"
 import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from "@/lib/services/tenant-stamp"
 import { registrarMovimientoCaja, getSesionAbierta } from "@/lib/services/caja-chica"
 import { registrarMovimientoCuenta } from "@/lib/services/cuentas"
+import { getHondurasNowISO } from "@/lib/utils/honduras-time"
 
 // ==================== TIPOS ====================
 
@@ -136,7 +137,7 @@ export async function createConceptoGasto(
     const newConcepto: ConceptoGasto = {
       ...concepto,
       id: Date.now(),
-      created_at: new Date().toISOString(),
+      created_at: getHondurasNowISO(),
     }
     conceptos.push(newConcepto)
     localStorage.setItem('conceptos_gastos', JSON.stringify(conceptos))
@@ -288,7 +289,7 @@ export async function createGasto(input: {
       monto_pagado: input.pagar_ahora ? input.monto : 0,
       estado_pago: input.pagar_ahora ? 'Pagado' : 'Pendiente',
       id: Date.now(),
-      created_at: new Date().toISOString(),
+      created_at: getHondurasNowISO(),
     }
     gastos.push(nuevo)
     localStorage.setItem('gastos', JSON.stringify(gastos))

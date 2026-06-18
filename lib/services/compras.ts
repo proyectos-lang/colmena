@@ -1,5 +1,6 @@
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client'
 import { getTenantStamp, isValidStamp, SESION_INVALIDA_ERROR } from '@/lib/services/tenant-stamp'
+import { getHondurasNowISO } from '@/lib/utils/honduras-time'
 
 // ==================== INTERFACES ====================
 
@@ -169,7 +170,7 @@ export async function createCompra(
     const newCompra: CompraEncabezado = { 
       ...encabezado, 
       id: Date.now(),
-      created_at: new Date().toISOString()
+      created_at: getHondurasNowISO()
     }
     compras.push(newCompra)
     localStorage.setItem('compras_encabezado', JSON.stringify(compras))
@@ -178,7 +179,7 @@ export async function createCompra(
       ...d,
       id: Date.now() + idx + 1,
       compra_id: newCompra.id!,
-      created_at: new Date().toISOString()
+      created_at: getHondurasNowISO()
     }))
     allDetalles.push(...newDetalles)
     localStorage.setItem('compras_detalle', JSON.stringify(allDetalles))
@@ -383,7 +384,7 @@ export async function procesarRecepcion(data: RecepcionData): Promise<{ success:
         cantidad: item.cantidad_recibida,
         costo_o_precio_unitario: item.costo_final_local,
         referencia_id: data.compraId,
-        fecha: new Date().toISOString()
+        fecha: getHondurasNowISO()
       })
     }
     
@@ -463,7 +464,7 @@ export async function procesarRecepcion(data: RecepcionData): Promise<{ success:
         .update({
           stock_total: nuevoStock,
           costo_promedio: nuevoCosto,
-          updated_at: new Date().toISOString()
+          updated_at: getHondurasNowISO()
         })
         .eq('id', item.producto_id)
 

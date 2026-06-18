@@ -15,6 +15,7 @@
  */
 
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client"
+import { getHondurasNowISO } from "@/lib/utils/honduras-time"
 import {
   getTenantStamp,
   isValidStamp,
@@ -88,7 +89,7 @@ export async function createProveedor(
     const nuevo: Proveedor = {
       id: Date.now(),
       nombre: trimmed,
-      created_at: new Date().toISOString(),
+      created_at: getHondurasNowISO(),
     }
     list.push(nuevo)
     localStorage.setItem("proveedores", JSON.stringify(list))

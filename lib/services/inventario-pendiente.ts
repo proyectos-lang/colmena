@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin"
 import type { RawInventarioRow } from "@/lib/utils/excel-parsers"
+import { getHondurasNowISO } from "@/lib/utils/honduras-time"
 
 export interface IngresoPendiente {
   id?: number
@@ -196,7 +197,7 @@ export async function aprobarIngresoPendiente(
 
   await supabase
     .from("ingresos_inventario_pendientes")
-    .update({ estado: "aprobado", updated_at: new Date().toISOString() })
+    .update({ estado: "aprobado", updated_at: getHondurasNowISO() })
     .eq("id", id)
 
   return { error: null }
@@ -211,7 +212,7 @@ export async function rechazarIngresoPendiente(
 
   const { error } = await supabase
     .from("ingresos_inventario_pendientes")
-    .update({ estado: "rechazado", motivo_rechazo: motivo, updated_at: new Date().toISOString() })
+    .update({ estado: "rechazado", motivo_rechazo: motivo, updated_at: getHondurasNowISO() })
     .eq("id", id)
 
   return { error: error?.message ?? null }
