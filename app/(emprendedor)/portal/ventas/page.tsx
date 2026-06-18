@@ -112,7 +112,12 @@ export default function VentasEmprendedorPage() {
 
   const totalPages = Math.max(1, Math.ceil(ventasFiltradas.length / PAGE_SIZE))
   const ventasPagina = ventasFiltradas.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const totalVendido = ventas.reduce((s, v) => s + v.subtotal_neto, 0)
+  // Subtotal final por línea = subtotal_neto × (1 - descuento/100)
+  // El descuento es del encabezado de la factura y se distribuye proporcionalmente.
+  const subtotalFinal = (v: { subtotal_neto: number; descuento?: number }) =>
+    +(v.subtotal_neto * (1 - (v.descuento ?? 0) / 100)).toFixed(2)
+
+  const totalVendido = ventas.reduce((s, v) => s + subtotalFinal(v), 0)
   const unidadesVendidas = ventas.reduce((s, v) => s + v.cantidad, 0)
   const productosDistintos = new Set(ventas.map((v) => v.producto_id)).size
 
@@ -120,7 +125,7 @@ export default function VentasEmprendedorPage() {
     const map: Record<string, number> = {}
     ventas.forEach((v) => {
       const dia = format(new Date(v.fecha_venta), "dd/MM")
-      map[dia] = (map[dia] ?? 0) + v.subtotal_neto
+      map[dia] = (map[dia] ?? 0) + subtotalFinal(v)
     })
     return Object.entries(map)
       .sort((a, b) => a[0].localeCompare(b[0]))
@@ -131,7 +136,7 @@ export default function VentasEmprendedorPage() {
     const map: Record<number, { nombre: string; total: number; cantidad: number }> = {}
     ventas.forEach((v) => {
       if (!map[v.producto_id]) map[v.producto_id] = { nombre: v.producto_nombre, total: 0, cantidad: 0 }
-      map[v.producto_id].total    += v.subtotal_neto
+      map[v.producto_id].total    += subtotalFinal(v)
       map[v.producto_id].cantidad += v.cantidad
     })
     return Object.values(map)
@@ -152,7 +157,7 @@ export default function VentasEmprendedorPage() {
       Cantidad: v.cantidad,
       "Precio Unitario": v.precio_unitario,
       "Descuento (%)": v.descuento ?? 0,
-      Subtotal: v.subtotal_neto,
+      Subtotal: subtotalFinal(v),
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     const wb = XLSX.utils.book_new()
@@ -371,7 +376,7 @@ export default function VentasEmprendedorPage() {
                             <span className="text-xs text-stone-400">—</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-right font-semibold text-stone-800 whitespace-nowrap">{fmoney(v.subtotal_neto)}</TableCell>
+                        <TableCell className="text-right font-semibold text-stone-800 whitespace-nowrap">{fmoney(subtotalFinal(v))}</TableCell>
                       </TableRow>
                     ))
                   )}
