@@ -100,6 +100,9 @@ export interface GetProductosOpts {
   search?: string
   marcaId?: number | null
   categoriaId?: number | null
+  emprendimientoId?: number | null
+  /** true → solo productos sin emprendimiento (tienda propia) */
+  soloTiendaPropia?: boolean
 }
 
 export async function getProductos(
@@ -126,6 +129,11 @@ export async function getProductos(
     }
     if (opts?.marcaId != null) q = q.eq('marca_id', opts.marcaId)
     if (opts?.categoriaId != null) q = q.eq('categoria_id', opts.categoriaId)
+    if (opts?.soloTiendaPropia) {
+      q = q.is('emprendimiento_id', null)
+    } else if (opts?.emprendimientoId != null) {
+      q = q.eq('emprendimiento_id', opts.emprendimientoId)
+    }
 
     if (opts?.page != null) {
       const size = opts.pageSize ?? 50

@@ -12,6 +12,7 @@ import {
   Calculator,
   Percent,
   DollarSign,
+  Store,
   Tag,
   Layers,
   Search,
@@ -20,6 +21,9 @@ import {
   Download,
   ChevronLeft,
   ChevronRight,
+  ChevronsUpDown,
+  Check,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -50,6 +54,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { Spinner } from "@/components/ui/spinner"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { useToast } from "@/hooks/use-toast"
 import {
   Producto,
@@ -100,10 +106,11 @@ export default function ProductosConfigPage() {
   const [currentPage, setCurrentPage] = useState(1)
 
   // Filter state
-  const [filterMarca, setFilterMarca] = useState<string>("all")
+  const [filterEmprendimiento, setFilterEmprendimiento] = useState<string>("all")
   const [filterCategoria, setFilterCategoria] = useState<string>("all")
   const [searchTerm, setSearchTerm] = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [empComboOpen, setEmpComboOpen] = useState(false)
   
   // Quick-create modals state
   const [marcaDialogOpen, setMarcaDialogOpen] = useState(false)
@@ -246,7 +253,7 @@ export default function ProductosConfigPage() {
   // Resetear a página 1 cuando cambien los filtros o la búsqueda
   useEffect(() => {
     setCurrentPage(1)
-  }, [debouncedSearch, filterMarca, filterCategoria])
+  }, [debouncedSearch, filterEmprendimiento, filterCategoria])
 
   // Cargar metadatos una sola vez al montar
   useEffect(() => {
@@ -261,7 +268,7 @@ export default function ProductosConfigPage() {
     if (!ready || razonSocialId == null) return
     loadProductos()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, razonSocialId, currentPage, debouncedSearch, filterMarca, filterCategoria])
+  }, [ready, razonSocialId, currentPage, debouncedSearch, filterEmprendimiento, filterCategoria])
 
   async function loadMetadatos() {
     setLoading(true)
@@ -299,7 +306,10 @@ export default function ProductosConfigPage() {
         page: currentPage,
         pageSize: PAGE_SIZE,
         search: debouncedSearch || undefined,
-        marcaId: filterMarca !== "all" ? parseInt(filterMarca) : undefined,
+        emprendimientoId: filterEmprendimiento !== "all" && filterEmprendimiento !== "tienda"
+          ? parseInt(filterEmprendimiento)
+          : undefined,
+        soloTiendaPropia: filterEmprendimiento === "tienda",
         categoriaId: filterCategoria !== "all" ? parseInt(filterCategoria) : undefined,
       }
       const { data, total, error } = await getProductos(opts)
@@ -565,21 +575,70 @@ export default function ProductosConfigPage() {
               />
             </div>
 
-            {/* Filtro Marca */}
-            <Select value={filterMarca} onValueChange={setFilterMarca}>
-              <SelectTrigger className="bg-white border-stone-200 rounded-xl">
-                <div className="flex items-center gap-2">
-                  <Tag className="h-4 w-4 text-stone-500" />
-                  <SelectValue placeholder="Todas las marcas" />
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas las marcas</SelectItem>
-                {marcas.map((m) => (
-                  <SelectItem key={m.id} value={m.id!.toString()}>{m.nombre}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Filtro Emprendedor — combobox con búsqueda */}
+            <Popover open={empComboOpen} onOpenChange={setEmpComboOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={empComboOpen}
+                  className="bg-white border-stone-200 rounded-xl justify-between font-normal text-sm h-10 w-full"
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    <Store className="h-4 w-4 text-stone-500 shrink-0" />
+                    <span className="truncate">
+                      {filterEmprendimiento === "all"
+                        ? "Todos los emprendedores"
+                        : filterEmprendimiento === "tienda"
+                        ? "Tienda propia"
+                        : (emprendimientos.find(e => e.id?.toString() === filterEmprendimiento)?.nombre ?? "Emprendedor")}
+                    </span>
+                  </div>
+                  {filterEmprendimiento !== "all" ? (
+                    <X
+                      className="h-3.5 w-3.5 text-stone-400 hover:text-stone-700 shrink-0 ml-1"
+                      onClick={(e) => { e.stopPropagation(); setFilterEmprendimiento("all"); setEmpComboOpen(false) }}
+                    />
+                  ) : (
+                    <ChevronsUpDown className="h-3.5 w-3.5 text-stone-400 shrink-0 ml-1" />
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Buscar emprendedor..." className="h-9" />
+                  <CommandList>
+                    <CommandEmpty>Sin resultados</CommandEmpty>
+                    <CommandGroup>
+                      <CommandItem
+                        value="all"
+                        onSelect={() => { setFilterEmprendimiento("all"); setEmpComboOpen(false) }}
+                      >
+                        <Check className={`mr-2 h-4 w-4 ${filterEmprendimiento === "all" ? "opacity-100" : "opacity-0"}`} />
+                        Todos los emprendedores
+                      </CommandItem>
+                      <CommandItem
+                        value="tienda"
+                        onSelect={() => { setFilterEmprendimiento("tienda"); setEmpComboOpen(false) }}
+                      >
+                        <Check className={`mr-2 h-4 w-4 ${filterEmprendimiento === "tienda" ? "opacity-100" : "opacity-0"}`} />
+                        Tienda propia
+                      </CommandItem>
+                      {emprendimientos.map((e) => (
+                        <CommandItem
+                          key={e.id}
+                          value={e.nombre}
+                          onSelect={() => { setFilterEmprendimiento(e.id!.toString()); setEmpComboOpen(false) }}
+                        >
+                          <Check className={`mr-2 h-4 w-4 ${filterEmprendimiento === e.id?.toString() ? "opacity-100" : "opacity-0"}`} />
+                          {e.nombre}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
 
             {/* Filtro Categoria */}
             <Select value={filterCategoria} onValueChange={setFilterCategoria}>
@@ -608,7 +667,7 @@ export default function ProductosConfigPage() {
           </CardTitle>
           <CardDescription className="text-xs md:text-sm">
             {totalProductos.toLocaleString()} producto{totalProductos !== 1 ? "s" : ""}
-            {(debouncedSearch || filterMarca !== "all" || filterCategoria !== "all") && " encontrados"}
+            {(debouncedSearch || filterEmprendimiento !== "all" || filterCategoria !== "all") && " encontrados"}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-4 md:p-6 pt-0">
@@ -620,12 +679,12 @@ export default function ProductosConfigPage() {
             <div className="text-center py-8 text-stone-500">
               <Package className="h-10 w-10 md:h-12 md:w-12 mx-auto mb-2 opacity-50" />
               <p className="text-sm md:text-base">
-                {totalProductos === 0 && !debouncedSearch && filterMarca === "all" && filterCategoria === "all"
+                {totalProductos === 0 && !debouncedSearch && filterEmprendimiento === "all" && filterCategoria === "all"
                   ? "No hay productos registrados"
                   : "No se encontraron productos con estos filtros"}
               </p>
               <p className="text-xs md:text-sm">
-                {totalProductos === 0 && !debouncedSearch && filterMarca === "all" && filterCategoria === "all"
+                {totalProductos === 0 && !debouncedSearch && filterEmprendimiento === "all" && filterCategoria === "all"
                   ? "Crea tu primer producto"
                   : "Prueba ajustando los filtros"}
               </p>
