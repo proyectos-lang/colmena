@@ -154,8 +154,24 @@ export async function getProductos(
 
     if (result.error) return { data: [], total: 0, error: result.error.message }
 
-    const productos = (result.data || []).map((p: any) => ({
+    const rawProductos = result.data || []
+    const productoIds = rawProductos.map((p: any) => p.id as number)
+
+    // Fetch authoritative stock from the view for this page only
+    let stockMap: Record<number, number> = {}
+    if (productoIds.length > 0) {
+      const { data: stockRows } = await supabase
+        .from('vista_stock_por_localizacion')
+        .select('producto_id, stock_actual')
+        .in('producto_id', productoIds)
+      ;(stockRows ?? []).forEach((row: any) => {
+        stockMap[row.producto_id] = (stockMap[row.producto_id] ?? 0) + (row.stock_actual ?? 0)
+      })
+    }
+
+    const productos = rawProductos.map((p: any) => ({
       ...p,
+      stock_total: stockMap[p.id] ?? 0,
       marca_nombre: p.marcas?.nombre || null,
       categoria_nombre: p.categorias?.nombre || null,
       subcategoria_nombre: p.subcategorias?.nombre || null,
