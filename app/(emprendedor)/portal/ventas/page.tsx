@@ -62,6 +62,24 @@ function TooltipProducto({ active, payload, label }: any) {
   )
 }
 
+function MetodoPagoBadge({ metodo }: { metodo: string }) {
+  if (!metodo) return <span className="text-xs text-stone-400">—</span>
+  const cfg: Record<string, { bg: string; text: string; label: string }> = {
+    "Efectivo":     { bg: "#f0fdf4", text: "#16a34a", label: "Efectivo" },
+    "Banco":        { bg: "#eff6ff", text: "#2563eb", label: "Banco" },
+    "Link de pago": { bg: "#f5f3ff", text: "#7c3aed", label: "Link de pago" },
+    "Crédito":      { bg: "#fffbeb", text: "#d97706", label: "Crédito" },
+    "Mixto":        { bg: "#fdf4ff", text: "#9333ea", label: "Mixto" },
+  }
+  const c = cfg[metodo] ?? { bg: "#f5f5f4", text: "#78716c", label: metodo }
+  return (
+    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap"
+      style={{ background: c.bg, color: c.text }}>
+      {c.label}
+    </span>
+  )
+}
+
 /* Paleta de barras por rango */
 const BAR_COLORS = [
   "#C07A5C", "#D4A574", "#A1887F", "#7C9A92", "#BFCC94",
@@ -152,6 +170,7 @@ export default function VentasEmprendedorPage() {
     const rows = ventas.map((v) => ({
       Fecha: format(new Date(v.fecha_venta), "dd/MM/yyyy HH:mm"),
       Factura: v.numero_factura,
+      "Método de pago": v.metodo_pago || "—",
       Producto: v.producto_nombre,
       "Código de Barras": v.codigo_barras,
       Cantidad: v.cantidad,
@@ -341,6 +360,7 @@ export default function VentasEmprendedorPage() {
                   <TableRow className="bg-stone-50/60 sticky top-0 z-10">
                     <TableHead className="text-stone-500">Fecha</TableHead>
                     <TableHead className="text-stone-500">Factura</TableHead>
+                    <TableHead className="text-stone-500">Pago</TableHead>
                     <TableHead className="text-stone-500">Producto</TableHead>
                     <TableHead className="text-stone-500">Código</TableHead>
                     <TableHead className="text-right text-stone-500">Cant.</TableHead>
@@ -352,7 +372,7 @@ export default function VentasEmprendedorPage() {
                 <TableBody>
                   {ventasPagina.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-stone-400 py-10">
+                      <TableCell colSpan={9} className="text-center text-stone-400 py-10">
                         {busqueda ? "Sin resultados para la búsqueda" : "Sin ventas en el período seleccionado"}
                       </TableCell>
                     </TableRow>
@@ -363,6 +383,7 @@ export default function VentasEmprendedorPage() {
                           {format(new Date(v.fecha_venta), "dd/MM/yyyy")}
                         </TableCell>
                         <TableCell className="font-mono text-xs text-stone-500">{v.numero_factura}</TableCell>
+                        <TableCell><MetodoPagoBadge metodo={v.metodo_pago} /></TableCell>
                         <TableCell className="font-medium text-stone-700">{v.producto_nombre}</TableCell>
                         <TableCell className="font-mono text-xs text-stone-500">{v.codigo_barras || "—"}</TableCell>
                         <TableCell className="text-right text-stone-600">{v.cantidad}</TableCell>

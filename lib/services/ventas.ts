@@ -2037,6 +2037,7 @@ export async function eliminarLineaVenta(
 // ==================== VENTAS POR EMPRENDIMIENTO ====================
 
 export interface VentaEmprendedor {
+  venta_id: number
   fecha_venta: string
   producto_id: number
   producto_nombre: string
@@ -2055,6 +2056,21 @@ export interface VentaEmprendedor {
   /** Porcentaje de descuento aplicado a la factura (0 si no hubo descuento) */
   descuento: number
   numero_factura: string
+  /** Método de pago consolidado: Efectivo | Banco | Link de pago | Crédito | Mixto | "" */
+  metodo_pago: string
+}
+
+function resolverMetodoPago(metodos: string[]): string {
+  if (metodos.length === 0) return ""
+  const unicos = [...new Set(metodos)]
+  if (unicos.length === 1) {
+    if (unicos[0] === "Efectivo") return "Efectivo"
+    if (unicos[0] === "Banco") return "Banco"
+    if (unicos[0] === "Link_Pago") return "Link de pago"
+    if (unicos[0] === "Credito") return "Crédito"
+    return unicos[0]
+  }
+  return "Mixto"
 }
 
 export async function getVentasByEmprendimiento(
@@ -2069,6 +2085,7 @@ export async function getVentasByEmprendimiento(
     const { data, error } = await supabase
       .from('ventas_detalle')
       .select(`
+        venta_id,
         cantidad,
         precio_unitario,
         productos!inner(id, nombre, codigo_barras, emprendimiento_id),
@@ -2083,6 +2100,26 @@ export async function getVentasByEmprendimiento(
       return []
     }
 
+    // Fetch payment methods for all venta_ids in one query
+    const ventaIds = [...new Set((data ?? []).map((r: any) => r.venta_id).filter(Boolean))]
+    const metodoPagoMap = new Map<number, string>()
+    if (ventaIds.length > 0) {
+      const { data: pagos } = await supabase
+        .from('ventas_pagos_detalle')
+        .select('venta_id, metodo_pago')
+        .in('venta_id', ventaIds)
+      if (pagos) {
+        const grouped: Record<number, string[]> = {}
+        for (const p of pagos) {
+          if (!grouped[p.venta_id]) grouped[p.venta_id] = []
+          grouped[p.venta_id].push(p.metodo_pago)
+        }
+        for (const [vid, metodos] of Object.entries(grouped)) {
+          metodoPagoMap.set(Number(vid), resolverMetodoPago(metodos))
+        }
+      }
+    }
+
     return (data ?? []).map((row: any) => {
       const producto = Array.isArray(row.productos) ? row.productos[0] : row.productos
       const encabezado = Array.isArray(row.ventas_encabezado)
@@ -2090,6 +2127,7 @@ export async function getVentasByEmprendimiento(
         : row.ventas_encabezado
       const productoSubtotal = +((row.cantidad ?? 0) * (row.precio_unitario ?? 0)).toFixed(2)
       return {
+        venta_id: row.venta_id ?? 0,
         fecha_venta: encabezado?.fecha_venta ?? '',
         producto_id: producto?.id ?? 0,
         producto_nombre: producto?.nombre ?? '',
@@ -2100,6 +2138,7 @@ export async function getVentasByEmprendimiento(
         subtotal_neto: productoSubtotal,
         descuento: Number(encabezado?.descuento ?? 0),
         numero_factura: encabezado?.numero_factura ?? '',
+        metodo_pago: metodoPagoMap.get(row.venta_id) ?? '',
       }
     })
   } catch (err) {
