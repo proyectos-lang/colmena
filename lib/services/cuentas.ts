@@ -4,6 +4,7 @@ import {
   isValidStamp,
   SESION_INVALIDA_ERROR,
 } from "@/lib/services/tenant-stamp"
+import { getHondurasNowISO } from "@/lib/utils/honduras-time"
 
 // ==================== INTERFACES ====================
 
@@ -272,6 +273,7 @@ export async function registrarMovimientoCuenta(input: {
       ref_tipo: input.ref_tipo,
       ref_id: input.ref_id,
       saldo_resultante: saldoResultante,
+      fecha: getHondurasNowISO(),
       ...stamp,
     })
     .select()

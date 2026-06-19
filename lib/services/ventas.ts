@@ -635,6 +635,7 @@ export async function crearVenta(
     // 1. Insert venta encabezado with almacen_id (sello completo: empresa + usuario)
     const encabezadoConAlmacen = {
       ...data.encabezado,
+      fecha_venta: getHondurasNowISO(),
       valorpago: valorpagoCalculado,
       estado_pago: estadoPagoCalculado,
       almacen_id: data.almacen_id,
