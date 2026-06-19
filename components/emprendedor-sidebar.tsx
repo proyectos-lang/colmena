@@ -32,8 +32,8 @@ import { toast } from "sonner"
 
 const NAV_ITEMS = [
   { href: "/portal", label: "Inicio", icon: LayoutDashboard },
-  { href: "/portal/mis-productos", label: "Mis Productos", icon: Package },
-  { href: "/portal/inventario", label: "Inventario", icon: Boxes },
+  { href: "/portal/mis-productos", label: "Crear nuevo producto", icon: Package },
+  { href: "/portal/inventario", label: "Restock", icon: Boxes },
   { href: "/portal/ventas", label: "Ventas", icon: BarChart3 },
 ]
 

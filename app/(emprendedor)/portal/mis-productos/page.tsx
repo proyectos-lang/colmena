@@ -291,7 +291,7 @@ export default function MisProductosPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Mis Productos</h1>
+        <h1 className="text-2xl font-bold">Crear nuevo producto</h1>
         <p className="text-muted-foreground text-sm">
           Envía productos nuevos para que el administrador los apruebe
         </p>

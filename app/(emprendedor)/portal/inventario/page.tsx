@@ -280,7 +280,7 @@ export default function InventarioPage() {
     <div className="space-y-6 -m-4 md:-m-6 p-4 md:p-6 min-h-screen bg-gradient-to-br from-stone-50 via-amber-50/20 to-orange-50/30">
 
       <div>
-        <h1 className="text-2xl font-bold text-stone-800">Inventario</h1>
+        <h1 className="text-2xl font-bold text-stone-800">Restock</h1>
         <p className="text-stone-500 text-sm">Consulta tu stock y solicita cargas de inventario</p>
       </div>
 
