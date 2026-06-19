@@ -501,9 +501,18 @@ export default function CierreDiarioPage() {
         lnCenter("Sin movimientos bancarios", y, 7)
         y += 6
       } else {
+        // Mostrar el valor bruto (lo que pago el cliente antes de comision).
+        // El bruto total esta en resumen.ingresos_banco_bruto.
+        // Como ventas_pagos_detalle no mapea a cuenta especifica, distribuimos
+        // el bruto proporcionalmente al neto de cada cuenta.
+        const totalNeto = data.bancos.reduce((s, b) => s + b.total_ingresos, 0)
+        const totalBruto = data.resumen.ingresos_banco_bruto
         data.bancos.forEach((b) => {
-          lnLeft(b.banco,                          y, 8)
-          lnRight(formatCurrency(b.total_ingresos), y, 8)
+          const bruto = totalNeto > 0
+            ? +(b.total_ingresos / totalNeto * totalBruto).toFixed(2)
+            : b.total_ingresos
+          lnLeft(b.banco,                y, 8)
+          lnRight(formatCurrency(bruto), y, 8)
           y += 6
         })
       }

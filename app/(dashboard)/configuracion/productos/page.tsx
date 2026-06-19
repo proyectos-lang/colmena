@@ -482,12 +482,7 @@ export default function ProductosConfigPage() {
     if (!formData.precio_venta_sugerido || formData.precio_venta_sugerido <= 0) {
       errors.precio_venta_sugerido = "El precio de venta debe ser mayor a 0"
     }
-    if (!formData.marca_id) {
-      errors.marca_id = "La marca es requerida"
-    }
-    if (!formData.categoria_id) {
-      errors.categoria_id = "La categoria es requerida"
-    }
+    // Marca y categoría son opcionales
     
     setValidationErrors(errors)
     return Object.keys(errors).length === 0
@@ -976,7 +971,7 @@ export default function ProductosConfigPage() {
             {/* Marca */}
             <div className="grid gap-2">
               <Label htmlFor="marca">
-                Marca <span className="text-destructive">*</span>
+                Marca <span className="text-stone-400 text-xs font-normal">(opcional)</span>
               </Label>
               <div className="flex gap-2">
                 <Select
@@ -986,8 +981,8 @@ export default function ProductosConfigPage() {
                     if (validationErrors.marca_id) setValidationErrors(prev => ({ ...prev, marca_id: "" }))
                   }}
                 >
-                  <SelectTrigger className={`flex-1 rounded-xl ${validationErrors.marca_id ? "border-destructive" : "border-stone-200"}`}>
-                    <SelectValue placeholder="Seleccione una marca" />
+                  <SelectTrigger className="flex-1 rounded-xl border-stone-200">
+                    <SelectValue placeholder="Sin marca" />
                   </SelectTrigger>
                   <SelectContent>
                     {marcas.length === 0 ? (
@@ -1020,7 +1015,7 @@ export default function ProductosConfigPage() {
             {/* Categoria */}
             <div className="grid gap-2">
               <Label htmlFor="categoria">
-                Categoria <span className="text-destructive">*</span>
+                Categoria <span className="text-stone-400 text-xs font-normal">(opcional)</span>
               </Label>
               <div className="flex gap-2">
                 <Select
@@ -1036,8 +1031,8 @@ export default function ProductosConfigPage() {
                     if (validationErrors.categoria_id) setValidationErrors(prev => ({ ...prev, categoria_id: "" }))
                   }}
                 >
-                  <SelectTrigger className={`flex-1 rounded-xl ${validationErrors.categoria_id ? "border-destructive" : "border-stone-200"}`}>
-                    <SelectValue placeholder="Seleccione una categoria" />
+                  <SelectTrigger className="flex-1 rounded-xl border-stone-200">
+                    <SelectValue placeholder="Sin categoría" />
                   </SelectTrigger>
                   <SelectContent>
                     {categorias.length === 0 ? (

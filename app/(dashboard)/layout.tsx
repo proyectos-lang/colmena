@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/lib/contexts/auth-context"
+import { CartProvider } from "@/lib/contexts/cart-context"
 import { RouteGuard } from "@/components/route-guard"
 
 // Dynamic import with SSR disabled to prevent hydration mismatch from Radix IDs
@@ -69,6 +70,7 @@ export default function DashboardLayout({
   }
 
   return (
+    <CartProvider>
     <SidebarProvider>
       <ERPSidebar />
       <SidebarInset className="bg-stone-50 min-h-screen">
@@ -132,10 +134,11 @@ export default function DashboardLayout({
             </DropdownMenu>
           </div>
         </header>
-        <main className="flex-1 overflow-auto p-4 md:p-6">
+        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden p-4 md:p-6">
           <RouteGuard>{children}</RouteGuard>
         </main>
       </SidebarInset>
     </SidebarProvider>
+    </CartProvider>
   )
 }

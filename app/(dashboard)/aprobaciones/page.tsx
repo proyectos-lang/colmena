@@ -399,14 +399,14 @@ export default function AprobacionesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {productosPendientes.length === 0 ? (
+                {pendientesProductos.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
-                      No hay productos pendientes
+                      No hay productos pendientes de aprobación
                     </TableCell>
                   </TableRow>
                 ) : (
-                  productosPendientes.map((p) => (
+                  pendientesProductos.map((p) => (
                     <TableRow
                       key={p.id}
                       className={selProductos.has(p.id!) ? "bg-green-50/60" : undefined}
@@ -524,14 +524,14 @@ export default function AprobacionesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {ingresosPendientes.length === 0 ? (
+                {pendientesIngresos.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                      No hay cargas de inventario pendientes
+                      No hay cargas de inventario pendientes de aprobación
                     </TableCell>
                   </TableRow>
                 ) : (
-                  ingresosPendientes.map((i) => (
+                  pendientesIngresos.map((i) => (
                     <TableRow
                       key={i.id}
                       className={selIngresos.has(i.id!) ? "bg-green-50/60" : undefined}

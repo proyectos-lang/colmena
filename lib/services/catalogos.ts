@@ -121,7 +121,7 @@ export async function getProductos(
     let q = supabase!
       .from('productos')
       .select(selectStr, { count: 'exact' })
-      .order('id', { ascending: true })
+      .order('codigo_barras', { ascending: true })
 
     if (opts?.search?.trim()) {
       const s = opts.search.trim()

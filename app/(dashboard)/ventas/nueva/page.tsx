@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Plus, Minus, Trash2, Printer, FileText, ShoppingCart, User, Receipt, Warehouse, MapPin, AlertTriangle, UserPlus, Wallet, X, Landmark, Store } from "lucide-react"
+import { Plus, Minus, Trash2, Printer, FileText, ShoppingCart, User, Receipt, Warehouse, MapPin, AlertTriangle, UserPlus, Wallet, X, Landmark, Store, Save, Clock } from "lucide-react"
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
 
@@ -50,18 +50,9 @@ import {
 import { useTenant } from "@/lib/hooks/use-tenant"
 import { getCuentas, type CuentaConfig } from "@/lib/services/cuentas"
 import { useCajaSesion } from "@/lib/hooks/use-caja-sesion"
+import { useCart, type CarritoTemporal } from "@/lib/contexts/cart-context"
 
-interface LineaVenta {
-  producto_id: number
-  producto_nombre: string
-  producto_codigo: string
-  cantidad: number
-  precio_unitario: number
-  costo_promedio: number
-  subtotal: number
-  utilidad_linea: number
-  stock_disponible: number
-}
+type LineaVenta = CarritoTemporal["lineas"][number]
 
 // ── Número a letras (lempiras hondureños) ──────────────────────────────────
 function numberToWordsHN(amount: number): string {
@@ -332,6 +323,10 @@ export default function NuevaVentaPage() {
   const [showPdfDialog, setShowPdfDialog] = React.useState(false)
   const [pdfBlobUrl, setPdfBlobUrl] = React.useState<string | null>(null)
   
+  // Carritos temporales — estado global en CartContext (sobrevive navegación)
+  const { cartesTemporales, agregarCarrito, eliminarCarrito: eliminarCarritoCtx } = useCart()
+  const [showCartesDialog, setShowCartesDialog] = React.useState(false)
+
   // Quick client creation
   const [showClienteDialog, setShowClienteDialog] = React.useState(false)
   const [savingCliente, setSavingCliente] = React.useState(false)
@@ -977,7 +972,7 @@ export default function NuevaVentaPage() {
     
     // Invoice Number
     doc.setFontSize(12)
-    doc.setFont("helvetica", "normal")
+    doc.setFont("helvetica", "bold")
     doc.text(`#${ventaData.encabezado.numero_factura}`, pageWidth - 20, 38, { align: "right" })
     
     // === CLIENTE Section ===
@@ -995,7 +990,7 @@ export default function NuevaVentaPage() {
     doc.text("Fecha", pageWidth - 60, clienteY)
     
     doc.setTextColor(30, 30, 30)
-    doc.setFont("helvetica", "normal")
+    doc.setFont("helvetica", "bold")
     doc.text(cliente?.nombre || ventaData.encabezado.cliente_nombre || "N/A", 20, clienteY + 6)
     doc.text(cliente?.rtn || "N/A", 80, clienteY + 6)
     doc.text(ventaData.encabezado.fecha_venta?.split('T')[0] || new Date().toISOString().split('T')[0], pageWidth - 60, clienteY + 6)
@@ -1017,15 +1012,15 @@ export default function NuevaVentaPage() {
     const lineSubtotal = (cantidad: number, precio: number) => cantidad * precio
     
     doc.setFontSize(10)
-    doc.setFont("helvetica", "normal")
-    
+    doc.setFont("helvetica", "bold")
+
     ventaData.detalles.forEach((d, index) => {
       const subtotal = lineSubtotal(d.cantidad ?? 0, d.precio_unitario ?? 0)
-      
+
       // Item name with quantity
       doc.setTextColor(30, 30, 30)
       doc.text(`${d.producto_nombre || ""} (x${d.cantidad})`, 20, itemY)
-      
+
       // Price aligned right
       doc.text(`L ${subtotal.toFixed(2)}`, pageWidth - 20, itemY, { align: "right" })
       
@@ -1048,6 +1043,7 @@ export default function NuevaVentaPage() {
     // Subtotal
     doc.text("Subtotal", pageWidth - 80, totalsY)
     doc.setTextColor(30, 30, 30)
+    doc.setFont("helvetica", "bold")
     doc.text(`L ${(ventaData.encabezado.subtotal ?? 0).toFixed(2)}`, pageWidth - 20, totalsY, { align: "right" })
     
     // Dotted line
@@ -1072,6 +1068,7 @@ export default function NuevaVentaPage() {
         : `${descuentoPctPdf.toFixed(2)}%`
       doc.text(`Descuento (${pctLabel})`, pageWidth - 80, totalsY + rowOffset)
       doc.setTextColor(30, 30, 30)
+      doc.setFont("helvetica", "bold")
       doc.text(`- L ${descuentoMonto.toFixed(2)}`, pageWidth - 20, totalsY + rowOffset, { align: "right" })
       // Dotted line
       doc.setDrawColor(180, 180, 180)
@@ -1086,6 +1083,7 @@ export default function NuevaVentaPage() {
     doc.setFont("helvetica", "normal")
     doc.text(`ISV incluido (${ventaData.encabezado.porcentaje_impuesto || 15}%)`, pageWidth - 80, totalsY + rowOffset)
     doc.setTextColor(30, 30, 30)
+    doc.setFont("helvetica", "bold")
     doc.text(`L ${(ventaData.encabezado.impuesto_total ?? 0).toFixed(2)}`, pageWidth - 20, totalsY + rowOffset, { align: "right" })
 
     // Dotted line
@@ -1111,6 +1109,7 @@ export default function NuevaVentaPage() {
       doc.setFontSize(10)
       doc.setTextColor(100, 100, 100)
       doc.text("Cambio", pageWidth - 80, totalsY + rowOffset + 14)
+      doc.setFont("helvetica", "bold")
       doc.setTextColor(30, 130, 30)
       doc.text(`L ${cambioA4.toFixed(2)}`, pageWidth - 20, totalsY + rowOffset + 14, { align: "right" })
     }
@@ -1170,6 +1169,47 @@ export default function NuevaVentaPage() {
       razonSocial,
       pagosDetalle.map(({ _id: _omit, ...rest }) => rest)
     )
+  }
+
+  function guardarCarrito() {
+    if (lineas.length === 0) return
+    const numero = cartesTemporales.length + 1
+    const carrito: CarritoTemporal = {
+      id: Date.now().toString(),
+      nombre: `Carrito ${numero}`,
+      lineas: [...lineas],
+      clienteId,
+      descuentoPct,
+      almacenId,
+      localizacionId,
+      savedAt: new Date(),
+    }
+    agregarCarrito(carrito)
+    setLineas([])
+    setClienteId("")
+    setPagosDetalle([])
+    setDescuentoPct(0)
+    toast({ title: `Carrito ${numero} guardado`, description: `${carrito.lineas.length} producto(s) guardados. Puedes seguir con una nueva venta.` })
+  }
+
+  function restaurarCarrito(carrito: CarritoTemporal) {
+    if (lineas.length > 0) {
+      const confirmar = window.confirm("Tienes productos en el carrito actual. ¿Descartar y restaurar el carrito guardado?")
+      if (!confirmar) return
+    }
+    setLineas(carrito.lineas)
+    setClienteId(carrito.clienteId)
+    setDescuentoPct(carrito.descuentoPct)
+    setAlmacenId(carrito.almacenId)
+    setLocalizacionId(carrito.localizacionId)
+    setPagosDetalle([])
+    eliminarCarritoCtx(carrito.id)
+    setShowCartesDialog(false)
+    toast({ title: `Carrito "${carrito.nombre}" restaurado`, description: `${carrito.lineas.length} producto(s) cargados.` })
+  }
+
+  function eliminarCarrito(id: string) {
+    eliminarCarritoCtx(id)
   }
 
   // Limpia completamente el formulario y obtiene un nuevo correlativo + datos
@@ -1349,6 +1389,33 @@ export default function NuevaVentaPage() {
               {lineas.length}
             </Badge>
           )}
+          <div className="flex items-center gap-1 ml-auto">
+            {cartesTemporales.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs gap-1 relative"
+                onClick={() => setShowCartesDialog(true)}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Carritos</span>
+                <span className="absolute -top-1.5 -right-1.5 h-4 min-w-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center px-0.5">
+                  {cartesTemporales.length}
+                </span>
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs gap-1"
+              onClick={guardarCarrito}
+              disabled={lineas.length === 0}
+              title="Guardar carrito y empezar venta nueva"
+            >
+              <Save className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Guardar</span>
+            </Button>
+          </div>
         </div>
         <div className="overflow-auto lg:max-h-[38vh] border-b shrink-0">
             {lineas.length === 0 ? (
@@ -1763,12 +1830,10 @@ export default function NuevaVentaPage() {
         </div>
 
         {/* Totals
-            El "Total" prominente representa el NETO (lo que recibe el
-            comercio despues de comisiones bancarias del desglose de pago).
-            Si no hay comisiones, totalNeto === total y se conserva el
-            comportamiento legacy. Cuando hay comisiones, mostramos como
-            lineas separadas el subtotal bruto (lo que paga el cliente)
-            y la deduccion por comisiones, para transparencia.
+            El "Total cobrado" prominente es lo que paga el cliente.
+            Si hay comisiones bancarias, se muestran como deduccion y el
+            "Total neto" (lo que recibe el comercio) aparece como linea
+            informativa secundaria encima del separador.
         */}
         <div className="flex-1 p-3 md:p-4 flex flex-col justify-end">
           <div className="space-y-2 md:space-y-3">
@@ -1791,22 +1856,22 @@ export default function NuevaVentaPage() {
             {totalComisionesR > 0 && (
               <>
                 <div className="flex justify-between text-xs md:text-sm">
-                  <span className="text-muted-foreground">Total cobrado</span>
-                  <span>L {total.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-xs md:text-sm">
                   <span className="text-muted-foreground">Comision bancaria</span>
                   <span className="text-destructive">- L {totalComisionesR.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-xs md:text-sm">
+                  <span className="text-muted-foreground">Total neto</span>
+                  <span className="text-muted-foreground">L {totalNeto.toFixed(2)}</span>
                 </div>
               </>
             )}
             <Separator />
             <div className="flex justify-between items-baseline">
               <span className="text-base md:text-lg font-semibold">
-                Total{totalComisionesR > 0 ? " neto" : ""}
+                Total cobrado
               </span>
               <span className="text-2xl md:text-3xl font-bold text-primary">
-                L {totalNeto.toFixed(2)}
+                L {total.toFixed(2)}
               </span>
             </div>
           </div>
@@ -1954,6 +2019,65 @@ export default function NuevaVentaPage() {
             >
               {savingCliente ? "Guardando..." : "Crear y Seleccionar"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Carritos Temporales Dialog */}
+      <Dialog open={showCartesDialog} onOpenChange={setShowCartesDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-primary" />
+              Carritos guardados ({cartesTemporales.length})
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+            {cartesTemporales.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No hay carritos guardados</p>
+            ) : (
+              cartesTemporales.map((carrito) => {
+                const cliente = clientes.find(c => c.id?.toString() === carrito.clienteId)
+                const hora = carrito.savedAt.toLocaleTimeString("es-HN", { hour: "2-digit", minute: "2-digit" })
+                const subtotal = carrito.lineas.reduce((s, l) => s + l.subtotal, 0)
+                return (
+                  <div key={carrito.id} className="border rounded-xl p-3 bg-stone-50 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-sm">{carrito.nombre}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-destructive hover:bg-destructive/10"
+                        onClick={() => eliminarCarrito(carrito.id)}
+                        title="Eliminar carrito"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {carrito.lineas.length} producto(s) · L {subtotal.toFixed(2)}
+                      {carrito.descuentoPct > 0 && ` · Desc. ${carrito.descuentoPct}%`}
+                    </p>
+                    {cliente && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <User className="h-3 w-3" /> {cliente.nombre}
+                      </p>
+                    )}
+                    <p className="text-xs text-stone-400">Guardado a las {hora}</p>
+                    <Button
+                      size="sm"
+                      className="w-full h-7 text-xs mt-1"
+                      onClick={() => restaurarCarrito(carrito)}
+                    >
+                      Restaurar carrito
+                    </Button>
+                  </div>
+                )
+              })
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCartesDialog(false)}>Cerrar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

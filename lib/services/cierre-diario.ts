@@ -449,19 +449,15 @@ export async function getCierreDiario(fechaISO: string): Promise<{
         )
       )
 
-      // OVERRIDE de ingresos_banco_bruto / ingresos_banco_neto.
-      // Fuente unica: sumatoria de `total_ingresos` por cuenta desde
-      // cuenta_movimientos. La vista `vista_cierre_diario` calculaba
-      // estos campos a partir de ventas_pagos_detalle (solo cobros con
-      // tarjeta), lo que dejaba en 0 transferencias, depositos y otros
-      // ingresos bancarios reales del dia. Como cuenta_movimientos
-      // registra el monto ya neto que entro a la cuenta, ambos campos
-      // (bruto/neto) reciben el mismo valor.
+      // OVERRIDE de ingresos_banco_neto (solo el neto).
+      // Fuente: sumatoria de `total_ingresos` por cuenta desde cuenta_movimientos,
+      // que registra el monto ya neto (despues de comision bancaria) que entro
+      // a cada cuenta. El bruto ya fue calculado correctamente desde
+      // ventas_pagos_detalle.monto_bruto en el bloque anterior y NO se sobreescribe.
       const totalIngresosBanco = bancos.reduce(
         (acc, b) => acc + b.total_ingresos,
         0
       )
-      resumen.ingresos_banco_bruto = +totalIngresosBanco.toFixed(2)
       resumen.ingresos_banco_neto = +totalIngresosBanco.toFixed(2)
     }
   }
