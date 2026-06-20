@@ -3,14 +3,12 @@
 import * as React from "react"
 import { useEmprendedorAuth } from "@/lib/contexts/emprendedor-auth-context"
 import {
-  getStockByEmprendimiento,
-  type StockEmprendedor,
-} from "@/lib/services/inventario"
-import {
   submitIngresoPendiente,
   submitIngresosBulkFromCodigos,
   getIngresosPendientesByEmprendimiento,
+  getStockByEmprendimiento,
   type IngresoPendiente,
+  type StockEmprendedor,
 } from "@/lib/services/inventario-pendiente"
 import { getVentasByEmprendimiento } from "@/lib/services/ventas"
 import { parseInventarioExcelRaw, type RawInventarioRow } from "@/lib/utils/excel-parsers"

@@ -217,3 +217,61 @@ export async function rechazarIngresoPendiente(
 
   return { error: error?.message ?? null }
 }
+
+// ==================== STOCK POR EMPRENDIMIENTO ====================
+
+export interface StockEmprendedor {
+  producto_id: number
+  nombre: string
+  codigo_barras: string
+  precio_venta_sugerido: number
+  stock_total: number
+}
+
+export async function getStockByEmprendimiento(
+  emprendimientoId: number,
+  _razonSocialId: number
+): Promise<StockEmprendedor[]> {
+  const supabase = createAdminClient()
+  if (!supabase) return []
+
+  try {
+    const { data: productos, error: prodError } = await supabase
+      .from('productos')
+      .select('id, nombre, codigo_barras, precio_venta_sugerido')
+      .eq('emprendimiento_id', emprendimientoId)
+      .order('nombre', { ascending: true })
+
+    if (prodError) {
+      console.error('[inventario] Error getStockByEmprendimiento productos:', prodError)
+      return []
+    }
+
+    if (!productos || productos.length === 0) return []
+
+    const { data: stockRows, error: stockError } = await supabase
+      .from('vista_stock_por_localizacion')
+      .select('producto_id, stock_actual')
+      .eq('emprendimiento_id', emprendimientoId)
+
+    if (stockError) {
+      console.error('[inventario] Error getStockByEmprendimiento stock:', stockError)
+    }
+
+    const stockMap: Record<number, number> = {}
+    for (const row of stockRows ?? []) {
+      stockMap[row.producto_id] = (stockMap[row.producto_id] ?? 0) + (row.stock_actual ?? 0)
+    }
+
+    return productos.map((p: any) => ({
+      producto_id: p.id,
+      nombre: p.nombre,
+      codigo_barras: p.codigo_barras ?? '',
+      precio_venta_sugerido: p.precio_venta_sugerido ?? 0,
+      stock_total: stockMap[p.id] ?? 0,
+    }))
+  } catch (err) {
+    console.error('[inventario] Excepcion getStockByEmprendimiento:', err)
+    return []
+  }
+}

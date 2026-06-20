@@ -4,9 +4,10 @@ import * as React from "react"
 import Link from "next/link"
 import { useEmprendedorAuth } from "@/lib/contexts/emprendedor-auth-context"
 import { getVentasByEmprendimiento, type VentaEmprendedor } from "@/lib/services/ventas"
-import { getStockByEmprendimiento, type StockEmprendedor } from "@/lib/services/inventario"
 import {
+  getStockByEmprendimiento,
   getIngresosPendientesByEmprendimiento,
+  type StockEmprendedor,
   type IngresoPendiente,
 } from "@/lib/services/inventario-pendiente"
 import {

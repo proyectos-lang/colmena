@@ -941,66 +941,6 @@ export async function procesarTrasladosMultiples(
   }
 }
 
-// ==================== STOCK POR EMPRENDIMIENTO ====================
-
-export interface StockEmprendedor {
-  producto_id: number
-  nombre: string
-  codigo_barras: string
-  precio_venta_sugerido: number
-  stock_total: number
-}
-
-export async function getStockByEmprendimiento(
-  emprendimientoId: number,
-  _razonSocialId: number
-): Promise<StockEmprendedor[]> {
-  const supabase = createClient()
-  if (!supabase) return []
-
-  try {
-    // 1. Fetch products for this emprendimiento (no razon_social_id filter — not reliable on productos table)
-    const { data: productos, error: prodError } = await supabase
-      .from('productos')
-      .select('id, nombre, codigo_barras, precio_venta_sugerido')
-      .eq('emprendimiento_id', emprendimientoId)
-      .order('nombre', { ascending: true })
-
-    if (prodError) {
-      console.error('[inventario] Error getStockByEmprendimiento productos:', prodError)
-      return []
-    }
-
-    if (!productos || productos.length === 0) return []
-
-    // 2. Get authoritative stock from vista_stock_por_localizacion filtered by emprendimiento_id
-    const { data: stockRows, error: stockError } = await supabase
-      .from('vista_stock_por_localizacion')
-      .select('producto_id, stock_actual')
-      .eq('emprendimiento_id', emprendimientoId)
-
-    if (stockError) {
-      console.error('[inventario] Error getStockByEmprendimiento stock:', stockError)
-    }
-
-    // 3. Sum stock_actual per producto_id
-    const stockMap: Record<number, number> = {}
-    for (const row of stockRows ?? []) {
-      stockMap[row.producto_id] = (stockMap[row.producto_id] ?? 0) + (row.stock_actual ?? 0)
-    }
-
-    return productos.map((p: any) => ({
-      producto_id: p.id,
-      nombre: p.nombre,
-      codigo_barras: p.codigo_barras ?? '',
-      precio_venta_sugerido: p.precio_venta_sugerido ?? 0,
-      stock_total: stockMap[p.id] ?? 0,
-    }))
-  } catch (err) {
-    console.error('[inventario] Excepcion getStockByEmprendimiento:', err)
-    return []
-  }
-}
 
 // ==================== SALIDA MANUAL ====================
 
