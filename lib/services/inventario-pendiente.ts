@@ -235,35 +235,58 @@ export async function getStockByEmprendimiento(
   const supabase = createAdminClient()
   if (!supabase) return []
 
-  try {
-    const { data: productos, error: prodError } = await supabase
-      .from('productos')
-      .select('id, nombre, codigo_barras, precio_venta_sugerido')
-      .eq('emprendimiento_id', emprendimientoId)
-      .order('nombre', { ascending: true })
+  const PAGE = 1000
 
-    if (prodError) {
-      console.error('[inventario] Error getStockByEmprendimiento productos:', prodError)
-      return []
+  try {
+    // Paginar productos de a 1000 hasta traerlos todos (evita el límite PostgREST)
+    let allProductos: any[] = []
+    let from = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from('productos')
+        .select('id, nombre, codigo_barras, precio_venta_sugerido')
+        .eq('emprendimiento_id', emprendimientoId)
+        .order('nombre', { ascending: true })
+        .range(from, from + PAGE - 1)
+
+      if (error) {
+        console.error('[inventario] Error getStockByEmprendimiento productos:', error)
+        return []
+      }
+      if (!data || data.length === 0) break
+      allProductos = allProductos.concat(data)
+      if (data.length < PAGE) break
+      from += PAGE
     }
 
-    if (!productos || productos.length === 0) return []
+    if (allProductos.length === 0) return []
 
-    const { data: stockRows, error: stockError } = await supabase
-      .from('vista_stock_por_localizacion')
-      .select('producto_id, stock_actual')
-      .eq('emprendimiento_id', emprendimientoId)
+    // Paginar stock de la vista
+    let allStockRows: any[] = []
+    from = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from('vista_stock_por_localizacion')
+        .select('producto_id, stock_actual')
+        .eq('emprendimiento_id', emprendimientoId)
+        .range(from, from + PAGE - 1)
 
-    if (stockError) {
-      console.error('[inventario] Error getStockByEmprendimiento stock:', stockError)
+      if (error) {
+        console.error('[inventario] Error getStockByEmprendimiento stock:', error)
+        break
+      }
+      if (!data || data.length === 0) break
+      allStockRows = allStockRows.concat(data)
+      if (data.length < PAGE) break
+      from += PAGE
     }
 
     const stockMap: Record<number, number> = {}
-    for (const row of stockRows ?? []) {
+    for (const row of allStockRows) {
       stockMap[row.producto_id] = (stockMap[row.producto_id] ?? 0) + (row.stock_actual ?? 0)
     }
 
-    return productos.map((p: any) => ({
+    return allProductos.map((p: any) => ({
       producto_id: p.id,
       nombre: p.nombre,
       codigo_barras: p.codigo_barras ?? '',
