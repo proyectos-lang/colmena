@@ -313,17 +313,22 @@ export async function registrarMovimientoCaja(input: {
 
   const { data: sesion, error: sErr } = await getSesionAbierta()
   if (sErr) return { data: null, error: sErr }
-  if (!sesion?.id) {
+
+  // Salidas y transferencias requieren sesion activa (control de saldo).
+  // Ingresos (ventas en efectivo, ingresos manuales) se registran siempre,
+  // incluso sin sesion abierta, para que el cierre diario los capture.
+  const esEntrada = input.tipo === "Ingreso_Manual" || input.tipo === "Ingreso_Venta"
+  const necesitaSesion = !esEntrada
+  if (necesitaSesion && !sesion?.id) {
     return { data: null, error: "No hay sesion de caja abierta" }
   }
 
-  const saldoActual = await getSaldoActual(sesion.id)
-  const esEntrada =
-    input.tipo === "Ingreso_Manual" || input.tipo === "Ingreso_Venta"
+  const sesionId: number | null = sesion?.id ?? null
+  const saldoActual = sesionId != null ? await getSaldoActual(sesionId) : 0
   const delta = esEntrada ? input.monto : -input.monto
   const saldoResultante = +(saldoActual + delta).toFixed(2)
 
-  // Validacion: salida no puede dejar saldo negativo.
+  // Validacion: salida no puede dejar saldo negativo (solo aplica con sesion).
   if (!esEntrada && saldoResultante < 0) {
     return {
       data: null,
@@ -335,7 +340,7 @@ export async function registrarMovimientoCaja(input: {
   // fecha operativa del dia HN al inspeccionarla directamente.
   const nowHN = getHondurasNowISO()
   console.log("[v0][caja-chica] registrarMovimientoCaja insert:", {
-    sesion_id: sesion.id,
+    sesion_id: sesionId,
     tipo: input.tipo,
     delta,
     saldoResultante,
@@ -345,7 +350,7 @@ export async function registrarMovimientoCaja(input: {
   const { data: mov, error: mErr } = await supabase
     .from("caja_chica_movimientos")
     .insert({
-      sesion_id: sesion.id,
+      sesion_id: sesionId,
       tipo: input.tipo,
       monto: delta, // guardamos con signo segun convencion del schema
       concepto: input.concepto,

@@ -462,6 +462,23 @@ export async function getCierreDiario(fechaISO: string): Promise<{
     }
   }
 
+  // OVERRIDE ingresos_banco_bruto desde ventas_pagos_detalle (SIEMPRE).
+  // La vista SQL puede no calcular este campo correctamente o puede no existir.
+  // Lo calculamos directamente aqui para garantizar que la tirilla y las
+  // tarjetas de KPI muestren siempre el bruto real que pago el cliente.
+  if (ventaIdsDelDia.length > 0) {
+    const { data: pgBruto } = await supabase
+      .from("ventas_pagos_detalle")
+      .select("monto_bruto")
+      .in("venta_id", ventaIdsDelDia)
+      .in("metodo_pago", ["Banco", "Link_Pago"])
+    if (pgBruto && pgBruto.length > 0) {
+      resumen.ingresos_banco_bruto = +(
+        pgBruto.reduce((s, p) => s + Number(p.monto_bruto || 0), 0)
+      ).toFixed(2)
+    }
+  }
+
   // ---- Tab 2: Productos vendidos ----------------------------------------
   const productos: ProductoVendido[] = []
   if (ventaIdsDelDia.length > 0) {
