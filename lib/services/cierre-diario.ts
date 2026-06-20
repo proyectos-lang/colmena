@@ -812,30 +812,25 @@ export async function getCierreDiario(fechaISO: string): Promise<{
   }
   resumen.total_egresos_caja = +total_egresos_caja.toFixed(2)
 
-  // ---- Ingresos en Efectivo — Ventas (FUENTE: ventas_pagos_detalle) ----
-  // Usamos ventaIdsDelDia (ya resuelto en el pre-paso) para filtrar las
-  // filas de ventas_pagos_detalle donde metodo_pago = 'Efectivo'.
-  // Sumamos monto_bruto (lo que pago el cliente antes de comision bancaria).
-  // Esta fuente es mas confiable que caja_chica_movimientos porque no depende
-  // de que la sesion de caja este abierta ni de que el movimiento haya sido
-  // registrado correctamente en paralelo.
+  // ---- Ingresos en Efectivo — Ventas (FUENTE: ventas_encabezado) ----
+  // Suma total_venta de las ventas del dia cuyo metodo_pago = 'Efectivo'.
+  // Usamos ventaIdsDelDia (ya resuelto en el pre-paso) para filtrar
+  // directamente sin repetir la logica de rango de fechas.
   const detalleEfectivo: IngresoEfectivoDetalle[] = []
   {
     let totalEfectivoVentas = 0
     if (ventaIdsDelDia.length > 0) {
-      const { data: pagosEf, error: pagosEfErr } = await supabase
-        .from("ventas_pagos_detalle")
-        .select("venta_id, monto_bruto")
-        .in("venta_id", ventaIdsDelDia)
+      const { data: encabEf, error: encabEfErr } = await supabase
+        .from("ventas_encabezado")
+        .select("total_venta")
+        .in("id", ventaIdsDelDia)
         .eq("metodo_pago", "Efectivo")
 
-      if (pagosEfErr && isMissingRelation(pagosEfErr)) {
-        featurePending = true
-      } else if (pagosEfErr) {
-        console.warn("[cierre-diario] error ingresos efectivo ventas:", pagosEfErr.message)
+      if (encabEfErr) {
+        console.warn("[cierre-diario] error ingresos efectivo ventas:", encabEfErr.message)
       } else {
-        for (const p of pagosEf || []) {
-          totalEfectivoVentas += Number(p.monto_bruto || 0)
+        for (const v of encabEf || []) {
+          totalEfectivoVentas += Number(v.total_venta || 0)
         }
       }
     }

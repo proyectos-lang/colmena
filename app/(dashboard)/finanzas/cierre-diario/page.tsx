@@ -392,14 +392,8 @@ export default function CierreDiarioPage() {
 
       // Totales
       const r = data.resumen
-      const totalBancosNeto = data.bancos.reduce((s, b) => s + b.total_ingresos, 0)
-      const totalBancosBruto = r.ingresos_banco_bruto
-      // Para el residual de efectivo usar bruto si disponible, neto si no.
-      // total_ventas es bruto (lo que cobró el cliente), así que la resta
-      // es exacta cuando usamos bruto; con neto hay una pequeña diferencia
-      // igual a las comisiones bancarias.
-      const totalBancosParaEfectivo = totalBancosBruto > 0 ? totalBancosBruto : totalBancosNeto
-      const efectivo = Math.max(0, r.total_ventas - totalBancosParaEfectivo - r.credito_total)
+      // Efectivo viene directamente de ventas_encabezado WHERE metodo_pago = 'Efectivo'
+      const efectivo = r.ingresos_efectivo
       const hayCredito = r.credito_total > 0
 
       // === Cálculo dinámico de la altura de la página ===
