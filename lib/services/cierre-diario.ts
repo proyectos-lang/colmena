@@ -373,6 +373,8 @@ export async function getCierreDiario(fechaISO: string): Promise<{
   //   - movimientos[]: detalle ordenado cronologicamente
   const bancos: DesgloseBanco[] = []
   {
+    // Query principal SIN monto_bruto para que funcione aunque la migración
+    // 018 no se haya ejecutado todavía.
     const { data, error } = await supabase
       .from("cuenta_movimientos")
       .select(`
@@ -381,7 +383,6 @@ export async function getCierreDiario(fechaISO: string): Promise<{
         fecha,
         tipo,
         monto,
-        monto_bruto,
         concepto,
         saldo_resultante,
         usuario,
@@ -401,9 +402,6 @@ export async function getCierreDiario(fechaISO: string): Promise<{
     } else if (error) {
       console.warn("[cierre-diario] error bancos:", error.message)
     } else {
-      // Agrupamos por cuenta_id en memoria. Las filas vienen ya ordenadas
-      // cronologicamente, por lo que el ULTIMO push a `movimientos` por
-      // cuenta tiene el `saldo_resultante` final del dia.
       const map = new Map<number | null, DesgloseBanco>()
       for (const r of data || []) {
         const cuenta: { id: number; nombre: string } | null =
@@ -421,22 +419,17 @@ export async function getCierreDiario(fechaISO: string): Promise<{
         }
 
         const monto = Number(r.monto || 0)
-        const montoBruto = r.monto_bruto != null ? Number(r.monto_bruto) : null
         const tipo = (r.tipo as "Ingreso" | "Egreso") || "Ingreso"
         existing.cantidad_movimientos += 1
-        if (tipo === "Ingreso") {
-          existing.total_ingresos += monto
-          existing.total_ingresos_bruto += montoBruto ?? monto
-        } else {
-          existing.total_egresos += monto
-        }
+        if (tipo === "Ingreso") existing.total_ingresos += monto
+        else existing.total_egresos += monto
 
         const detalle: CuentaMovimientoDetalle = {
           id: Number(r.id),
           fecha: r.fecha,
           tipo,
           monto,
-          monto_bruto: montoBruto,
+          monto_bruto: null,
           concepto: r.concepto ?? null,
           saldo_resultante: Number(r.saldo_resultante || 0),
           usuario: r.usuario ?? null,
@@ -444,13 +437,9 @@ export async function getCierreDiario(fechaISO: string): Promise<{
           ref_id: r.ref_id != null ? Number(r.ref_id) : null,
         }
         existing.movimientos.push(detalle)
-        // Como el orden es cronologico ASC, el saldo del ultimo registro
-        // que veamos es el saldo final del dia.
         existing.saldo_final_dia = detalle.saldo_resultante
-
         map.set(key, existing)
       }
-      // Orden por movimiento mas alto: las cuentas con mas actividad arriba.
       bancos.push(
         ...Array.from(map.values()).sort(
           (a, b) =>
@@ -459,31 +448,46 @@ export async function getCierreDiario(fechaISO: string): Promise<{
         )
       )
 
-      // OVERRIDE de ingresos_banco_neto (solo el neto).
-      // Fuente: sumatoria de `total_ingresos` por cuenta desde cuenta_movimientos,
-      // que registra el monto ya neto (despues de comision bancaria) que entro
-      // a cada cuenta. El bruto ya fue calculado correctamente desde
-      // ventas_pagos_detalle.monto_bruto en el bloque anterior y NO se sobreescribe.
-      const totalIngresosBanco = bancos.reduce(
-        (acc, b) => acc + b.total_ingresos,
-        0
-      )
+      // Neto override (siempre correcto).
+      const totalIngresosBanco = bancos.reduce((acc, b) => acc + b.total_ingresos, 0)
       resumen.ingresos_banco_neto = +totalIngresosBanco.toFixed(2)
+
+      // total_ingresos_bruto por banco: inicializar con neto como fallback.
+      for (const b of bancos) {
+        b.total_ingresos_bruto = b.total_ingresos
+      }
     }
   }
 
-  // OVERRIDE ingresos_banco_bruto desde cuenta_movimientos.monto_bruto.
-  // Es más fiable que la vista SQL o ventas_pagos_detalle porque viene
-  // directamente del campo que se graba en cada venta bancaria.
-  // Fallback: si monto_bruto es null (movimientos anteriores a la migración 018),
-  // total_ingresos_bruto ya usa monto (neto) como sustituto.
-  {
-    const totalBrutoCalculado = bancos.reduce(
-      (acc, b) => acc + b.total_ingresos_bruto,
-      0
-    )
-    if (totalBrutoCalculado > 0) {
-      resumen.ingresos_banco_bruto = +totalBrutoCalculado.toFixed(2)
+  // Enriquecimiento opcional con monto_bruto (requiere migración 018).
+  // Si la columna no existe la query falla y se ignora — el fallback
+  // (total_ingresos_bruto = total_ingresos) ya garantiza valores correctos.
+  if (bancos.length > 0) {
+    const { data: brutosData, error: brutosErr } = await supabase
+      .from("cuenta_movimientos")
+      .select("cuenta_id, monto_bruto")
+      .eq("razon_social_id", tenantId)
+      .gte("fecha", start)
+      .lt("fecha", end)
+      .eq("tipo", "Ingreso")
+      .not("monto_bruto", "is", null)
+
+    if (!brutosErr && brutosData && brutosData.length > 0) {
+      const brutoMap = new Map<number | null, number>()
+      for (const r of brutosData) {
+        const key = r.cuenta_id ?? null
+        brutoMap.set(key, (brutoMap.get(key) ?? 0) + Number(r.monto_bruto || 0))
+      }
+      for (const b of bancos) {
+        const bruto = brutoMap.get(b.cuenta_id)
+        if (bruto != null && bruto > 0) b.total_ingresos_bruto = bruto
+      }
+    }
+
+    // Override ingresos_banco_bruto desde total_ingresos_bruto acumulado.
+    const totalBruto = bancos.reduce((acc, b) => acc + b.total_ingresos_bruto, 0)
+    if (totalBruto > 0) {
+      resumen.ingresos_banco_bruto = +totalBruto.toFixed(2)
     }
   }
 
@@ -808,28 +812,45 @@ export async function getCierreDiario(fechaISO: string): Promise<{
   }
   resumen.total_egresos_caja = +total_egresos_caja.toFixed(2)
 
-  // ---- Ingresos en Efectivo (FUENTE OFICIAL: caja_chica_movimientos) ----
-  // OVERRIDE: ignoramos lo que haya calculado la vista o el fallback de
-  // ventas_pagos_detalle para este KPI. La fuente de verdad son los
-  // movimientos de caja chica filtrados por:
-  //   - razon_social_id = tenant
-  //   - created_at en el rango [start, end) del dia consultado
-  //   - tipo IN ('Ingreso_Venta','Ingreso_Manual')
-  //
-  // Separamos conceptualmente:
-  //   - 'Ingreso_Venta'  -> resumen.ingresos_efectivo (cobros de ventas)
-  //   - 'Ingreso_Manual' -> resumen.ingresos_efectivo_manual (inyecciones)
-  // Ademas exponemos el detalle (hora, concepto, cajero, monto) para la
-  // tabla desplegable en la UI.
+  // ---- Ingresos en Efectivo — Ventas (FUENTE: ventas_pagos_detalle) ----
+  // Usamos ventaIdsDelDia (ya resuelto en el pre-paso) para filtrar las
+  // filas de ventas_pagos_detalle donde metodo_pago = 'Efectivo'.
+  // Sumamos monto_bruto (lo que pago el cliente antes de comision bancaria).
+  // Esta fuente es mas confiable que caja_chica_movimientos porque no depende
+  // de que la sesion de caja este abierta ni de que el movimiento haya sido
+  // registrado correctamente en paralelo.
   const detalleEfectivo: IngresoEfectivoDetalle[] = []
+  {
+    let totalEfectivoVentas = 0
+    if (ventaIdsDelDia.length > 0) {
+      const { data: pagosEf, error: pagosEfErr } = await supabase
+        .from("ventas_pagos_detalle")
+        .select("venta_id, monto_bruto")
+        .in("venta_id", ventaIdsDelDia)
+        .eq("metodo_pago", "Efectivo")
+
+      if (pagosEfErr && isMissingRelation(pagosEfErr)) {
+        featurePending = true
+      } else if (pagosEfErr) {
+        console.warn("[cierre-diario] error ingresos efectivo ventas:", pagosEfErr.message)
+      } else {
+        for (const p of pagosEf || []) {
+          totalEfectivoVentas += Number(p.monto_bruto || 0)
+        }
+      }
+    }
+    resumen.ingresos_efectivo = +totalEfectivoVentas.toFixed(2)
+  }
+
+  // ---- Ingresos Manuales de Caja (FUENTE: caja_chica_movimientos) ----
+  // Las inyecciones manuales de efectivo siguen registradas en caja_chica_movimientos.
+  // Exponemos el detalle para la tabla desplegable en la UI.
   {
     const { data, error } = await supabase
       .from("caja_chica_movimientos")
-      .select(
-        "id, created_at, tipo, monto, concepto, usuario, ref_tipo, ref_id"
-      )
+      .select("id, created_at, tipo, monto, concepto, usuario, ref_tipo, ref_id")
       .eq("razon_social_id", tenantId)
-      .in("tipo", ["Ingreso_Venta", "Ingreso_Manual"])
+      .eq("tipo", "Ingreso_Manual")
       .gte("created_at", start)
       .lt("created_at", end)
       .order("created_at", { ascending: true })
@@ -837,22 +858,16 @@ export async function getCierreDiario(fechaISO: string): Promise<{
     if (error && isMissingRelation(error)) {
       featurePending = true
     } else if (error) {
-      console.warn("[cierre-diario] error ingresos efectivo:", error.message)
+      console.warn("[cierre-diario] error ingresos manuales:", error.message)
     } else {
-      let totalVenta = 0
       let totalManual = 0
       for (const m of data || []) {
-        // El monto se almacena positivo para ingresos por convencion del
-        // schema. Usamos Math.abs por seguridad ante datos legacy.
         const monto = Math.abs(Number(m.monto || 0))
-        const tipo = m.tipo as "Ingreso_Venta" | "Ingreso_Manual"
-        if (tipo === "Ingreso_Venta") totalVenta += monto
-        else if (tipo === "Ingreso_Manual") totalManual += monto
-
+        totalManual += monto
         detalleEfectivo.push({
           id: Number(m.id),
           fecha: m.created_at,
-          tipo,
+          tipo: "Ingreso_Manual",
           monto,
           concepto: m.concepto ?? null,
           cajero: m.usuario ?? null,
@@ -860,8 +875,6 @@ export async function getCierreDiario(fechaISO: string): Promise<{
           ref_id: m.ref_id != null ? Number(m.ref_id) : null,
         })
       }
-      // Override absoluto: este es el valor correcto.
-      resumen.ingresos_efectivo = +totalVenta.toFixed(2)
       resumen.ingresos_efectivo_manual = +totalManual.toFixed(2)
     }
   }

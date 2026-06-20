@@ -35,6 +35,7 @@ export interface VentaEncabezado {
    * ventas_detalle ya estan guardados como precio_bruto × (1 - comisionbanc/100).
    */
   comisionbanc?: number | null
+  metodo_pago?: string | null
 }
 
 export interface VentaDetalle {
@@ -362,6 +363,7 @@ export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: str
           valorpago,
           comisionbanc,
           descuento,
+          metodo_pago,
           clientes ( nombre ),
           almacenes ( nombre )
         ),
@@ -461,7 +463,7 @@ export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: str
         cantidad: d.cantidad ?? 0,
         precio_unitario,
         descuento: Number(ve?.descuento ?? 0),
-        metodo_pago: pago.metodo,
+        metodo_pago: ve?.metodo_pago ?? pago.metodo,
         comisionbanc: comisionbanc,
         comision_porcentaje,
         precio_bruto_unitario,
@@ -632,6 +634,13 @@ export async function crearVenta(
         : 0
     }
 
+    // Método de pago denormalizado: un valor resumen por venta para historial y cierre
+    let metodoPagoEncabezado: string | null = null
+    if (pagosDetalle.length > 0) {
+      const metodosUnicos = [...new Set(pagosDetalle.map(p => p.metodo_pago))]
+      metodoPagoEncabezado = metodosUnicos.length === 1 ? metodosUnicos[0] : 'Mixto'
+    }
+
     // 1. Insert venta encabezado with almacen_id (sello completo: empresa + usuario)
     const encabezadoConAlmacen = {
       ...data.encabezado,
@@ -640,6 +649,7 @@ export async function crearVenta(
       estado_pago: estadoPagoCalculado,
       almacen_id: data.almacen_id,
       comisionbanc: comisionEfectivaPct,
+      metodo_pago: metodoPagoEncabezado,
       ...stamp
     }
 
@@ -649,12 +659,12 @@ export async function crearVenta(
       .select()
       .single()
 
-    // Fallback: si la columna `valorpago` o `comisionbanc` aun no existe en la DB,
-    // reintentamos sin ese campo para no bloquear la creacion de ventas.
-    if (ventaError && /valorpago|comisionbanc/i.test(ventaError.message || '')) {
-      console.warn('[crearVenta] Columna valorpago/comisionbanc no existe. Reintentando sin ella.')
-      const { valorpago: _v, comisionbanc: _c, ...sinCamposNuevos } = encabezadoConAlmacen as
-        { valorpago?: number; comisionbanc?: number } & Record<string, unknown>
+    // Fallback: si alguna columna nueva aun no existe en la DB,
+    // reintentamos sin esos campos para no bloquear la creacion de ventas.
+    if (ventaError && /valorpago|comisionbanc|metodo_pago/i.test(ventaError.message || '')) {
+      console.warn('[crearVenta] Columna nueva no existe. Reintentando sin campos nuevos.')
+      const { valorpago: _v, comisionbanc: _c, metodo_pago: _m, ...sinCamposNuevos } = encabezadoConAlmacen as
+        { valorpago?: number; comisionbanc?: number; metodo_pago?: string | null } & Record<string, unknown>
       const retry = await supabase
         .from('ventas_encabezado')
         .insert(sinCamposNuevos)
@@ -2090,7 +2100,7 @@ export async function getVentasByEmprendimiento(
         cantidad,
         precio_unitario,
         productos!inner(id, nombre, codigo_barras, emprendimiento_id),
-        ventas_encabezado!inner(fecha_venta, numero_factura, descuento)
+        ventas_encabezado!inner(fecha_venta, numero_factura, descuento, metodo_pago)
       `)
       .eq('productos.emprendimiento_id', emprendimientoId)
       .gte('ventas_encabezado.fecha_venta', desde)
@@ -2101,32 +2111,16 @@ export async function getVentasByEmprendimiento(
       return []
     }
 
-    // Fetch payment methods for all venta_ids in one query
-    const ventaIds = [...new Set((data ?? []).map((r: any) => r.venta_id).filter(Boolean))]
-    const metodoPagoMap = new Map<number, string>()
-    if (ventaIds.length > 0) {
-      const { data: pagos } = await supabase
-        .from('ventas_pagos_detalle')
-        .select('venta_id, metodo_pago')
-        .in('venta_id', ventaIds)
-      if (pagos) {
-        const grouped: Record<number, string[]> = {}
-        for (const p of pagos) {
-          if (!grouped[p.venta_id]) grouped[p.venta_id] = []
-          grouped[p.venta_id].push(p.metodo_pago)
-        }
-        for (const [vid, metodos] of Object.entries(grouped)) {
-          metodoPagoMap.set(Number(vid), resolverMetodoPago(metodos))
-        }
-      }
-    }
-
     return (data ?? []).map((row: any) => {
       const producto = Array.isArray(row.productos) ? row.productos[0] : row.productos
       const encabezado = Array.isArray(row.ventas_encabezado)
         ? row.ventas_encabezado[0]
         : row.ventas_encabezado
       const productoSubtotal = +((row.cantidad ?? 0) * (row.precio_unitario ?? 0)).toFixed(2)
+      const raw: string = encabezado?.metodo_pago ?? ''
+      const metodo_pago = raw === 'Link_Pago' ? 'Link de pago'
+                        : raw === 'Credito'   ? 'Crédito'
+                        : raw
       return {
         venta_id: row.venta_id ?? 0,
         fecha_venta: encabezado?.fecha_venta ?? '',
@@ -2139,7 +2133,7 @@ export async function getVentasByEmprendimiento(
         subtotal_neto: productoSubtotal,
         descuento: Number(encabezado?.descuento ?? 0),
         numero_factura: encabezado?.numero_factura ?? '',
-        metodo_pago: metodoPagoMap.get(row.venta_id) ?? '',
+        metodo_pago,
       }
     })
   } catch (err) {
