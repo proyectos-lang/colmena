@@ -392,10 +392,14 @@ export default function CierreDiarioPage() {
 
       // Totales
       const r = data.resumen
-      // Total bruto por cuenta bancaria (ingresos de cuenta_movimientos)
-      const totalBancos = data.bancos.reduce((s, b) => s + b.total_ingresos, 0)
-      // Efectivo = total ventas - ventas bancarias - crédito (residual)
-      const efectivo = Math.max(0, r.total_ventas - totalBancos - r.credito_total)
+      const totalBancosNeto = data.bancos.reduce((s, b) => s + b.total_ingresos, 0)
+      const totalBancosBruto = r.ingresos_banco_bruto
+      // Para el residual de efectivo usar bruto si disponible, neto si no.
+      // total_ventas es bruto (lo que cobró el cliente), así que la resta
+      // es exacta cuando usamos bruto; con neto hay una pequeña diferencia
+      // igual a las comisiones bancarias.
+      const totalBancosParaEfectivo = totalBancosBruto > 0 ? totalBancosBruto : totalBancosNeto
+      const efectivo = Math.max(0, r.total_ventas - totalBancosParaEfectivo - r.credito_total)
       const hayCredito = r.credito_total > 0
 
       // === Cálculo dinámico de la altura de la página ===
@@ -501,18 +505,17 @@ export default function CierreDiarioPage() {
         lnCenter("Sin movimientos bancarios", y, 7)
         y += 6
       } else {
-        // Mostrar el valor bruto (lo que pago el cliente antes de comision).
-        // El bruto total esta en resumen.ingresos_banco_bruto.
-        // Como ventas_pagos_detalle no mapea a cuenta especifica, distribuimos
-        // el bruto proporcionalmente al neto de cada cuenta.
-        const totalNeto = data.bancos.reduce((s, b) => s + b.total_ingresos, 0)
-        const totalBruto = data.resumen.ingresos_banco_bruto
+        // Mostrar bruto por banco si el total bruto está disponible.
+        // El bruto se distribuye proporcionalmente al neto de cada cuenta.
+        // Si ingresos_banco_bruto = 0 (ventas_pagos_detalle vacío o sin migración),
+        // mostramos el neto directamente — igual que el PDF A4.
+        const usarBruto = totalBancosBruto > 0 && totalBancosNeto > 0
         data.bancos.forEach((b) => {
-          const bruto = totalNeto > 0
-            ? +(b.total_ingresos / totalNeto * totalBruto).toFixed(2)
+          const monto = usarBruto
+            ? +(b.total_ingresos / totalBancosNeto * totalBancosBruto).toFixed(2)
             : b.total_ingresos
-          lnLeft(b.banco,                y, 8)
-          lnRight(formatCurrency(bruto), y, 8)
+          lnLeft(b.banco,                 y, 8)
+          lnRight(formatCurrency(monto),  y, 8)
           y += 6
         })
       }
