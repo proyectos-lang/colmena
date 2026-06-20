@@ -24,6 +24,8 @@ export interface CuentaMovimiento {
   fecha?: string
   tipo: "Ingreso" | "Egreso"
   monto: number
+  /** Monto bruto antes de descontar comisión bancaria (solo para ingresos de ventas). */
+  monto_bruto?: number | null
   concepto?: string
   ref_tipo?: string
   ref_id?: number
@@ -229,6 +231,8 @@ export async function registrarMovimientoCuenta(input: {
   cuenta_id: number
   tipo: "Ingreso" | "Egreso"
   monto: number
+  /** Monto bruto antes de comisión. Solo para ingresos de ventas bancarias. */
+  monto_bruto?: number | null
   concepto?: string
   ref_tipo?: string
   ref_id?: number
@@ -269,6 +273,7 @@ export async function registrarMovimientoCuenta(input: {
       cuenta_id: input.cuenta_id,
       tipo: input.tipo,
       monto: input.monto,
+      monto_bruto: input.monto_bruto ?? null,
       concepto: input.concepto,
       ref_tipo: input.ref_tipo,
       ref_id: input.ref_id,

@@ -95,6 +95,7 @@ export interface CuentaMovimientoDetalle {
   fecha: string
   tipo: "Ingreso" | "Egreso"
   monto: number
+  monto_bruto: number | null
   concepto: string | null
   saldo_resultante: number
   usuario: string | null
@@ -112,7 +113,8 @@ export interface DesgloseBanco {
   cuenta_id: number | null
   banco: string                       // "BAC", "Banpais", o "Sin cuenta"
   cantidad_movimientos: number
-  total_ingresos: number              // sumatoria monto donde tipo='Ingreso'
+  total_ingresos: number              // sumatoria monto (neto) donde tipo='Ingreso'
+  total_ingresos_bruto: number        // sumatoria monto_bruto donde tipo='Ingreso'
   total_egresos: number               // sumatoria monto donde tipo='Egreso'
   saldo_final_dia: number             // saldo_resultante del ultimo mov del dia
   movimientos: CuentaMovimientoDetalle[]
@@ -379,6 +381,7 @@ export async function getCierreDiario(fechaISO: string): Promise<{
         fecha,
         tipo,
         monto,
+        monto_bruto,
         concepto,
         saldo_resultante,
         usuario,
@@ -411,22 +414,29 @@ export async function getCierreDiario(fechaISO: string): Promise<{
           banco: cuenta?.nombre ?? "Sin cuenta",
           cantidad_movimientos: 0,
           total_ingresos: 0,
+          total_ingresos_bruto: 0,
           total_egresos: 0,
           saldo_final_dia: 0,
           movimientos: [],
         }
 
         const monto = Number(r.monto || 0)
+        const montoBruto = r.monto_bruto != null ? Number(r.monto_bruto) : null
         const tipo = (r.tipo as "Ingreso" | "Egreso") || "Ingreso"
         existing.cantidad_movimientos += 1
-        if (tipo === "Ingreso") existing.total_ingresos += monto
-        else existing.total_egresos += monto
+        if (tipo === "Ingreso") {
+          existing.total_ingresos += monto
+          existing.total_ingresos_bruto += montoBruto ?? monto
+        } else {
+          existing.total_egresos += monto
+        }
 
         const detalle: CuentaMovimientoDetalle = {
           id: Number(r.id),
           fecha: r.fecha,
           tipo,
           monto,
+          monto_bruto: montoBruto,
           concepto: r.concepto ?? null,
           saldo_resultante: Number(r.saldo_resultante || 0),
           usuario: r.usuario ?? null,
@@ -462,20 +472,18 @@ export async function getCierreDiario(fechaISO: string): Promise<{
     }
   }
 
-  // OVERRIDE ingresos_banco_bruto desde ventas_pagos_detalle (SIEMPRE).
-  // La vista SQL puede no calcular este campo correctamente o puede no existir.
-  // Lo calculamos directamente aqui para garantizar que la tirilla y las
-  // tarjetas de KPI muestren siempre el bruto real que pago el cliente.
-  if (ventaIdsDelDia.length > 0) {
-    const { data: pgBruto } = await supabase
-      .from("ventas_pagos_detalle")
-      .select("monto_bruto")
-      .in("venta_id", ventaIdsDelDia)
-      .in("metodo_pago", ["Banco", "Link_Pago"])
-    if (pgBruto && pgBruto.length > 0) {
-      resumen.ingresos_banco_bruto = +(
-        pgBruto.reduce((s, p) => s + Number(p.monto_bruto || 0), 0)
-      ).toFixed(2)
+  // OVERRIDE ingresos_banco_bruto desde cuenta_movimientos.monto_bruto.
+  // Es más fiable que la vista SQL o ventas_pagos_detalle porque viene
+  // directamente del campo que se graba en cada venta bancaria.
+  // Fallback: si monto_bruto es null (movimientos anteriores a la migración 018),
+  // total_ingresos_bruto ya usa monto (neto) como sustituto.
+  {
+    const totalBrutoCalculado = bancos.reduce(
+      (acc, b) => acc + b.total_ingresos_bruto,
+      0
+    )
+    if (totalBrutoCalculado > 0) {
+      resumen.ingresos_banco_bruto = +totalBrutoCalculado.toFixed(2)
     }
   }
 

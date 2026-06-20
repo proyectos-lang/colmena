@@ -824,6 +824,7 @@ export async function crearVenta(
             cuenta_id: p.cuenta_id,
             tipo: 'Ingreso',
             monto: neto,
+            monto_bruto: monto,
             concepto: `Venta ${data.encabezado.numero_factura} (neto)`,
             ref_tipo: 'venta',
             ref_id: ventaData.id,

@@ -505,14 +505,12 @@ export default function CierreDiarioPage() {
         lnCenter("Sin movimientos bancarios", y, 7)
         y += 6
       } else {
-        // Mostrar bruto por banco si el total bruto está disponible.
-        // El bruto se distribuye proporcionalmente al neto de cada cuenta.
-        // Si ingresos_banco_bruto = 0 (ventas_pagos_detalle vacío o sin migración),
-        // mostramos el neto directamente — igual que el PDF A4.
-        const usarBruto = totalBancosBruto > 0 && totalBancosNeto > 0
+        // Usar bruto por banco directamente desde cuenta_movimientos.monto_bruto
+        // (campo total_ingresos_bruto en DesgloseBanco). Si es 0 (movimientos
+        // anteriores a migración 018), fallback a neto.
         data.bancos.forEach((b) => {
-          const monto = usarBruto
-            ? +(b.total_ingresos / totalBancosNeto * totalBancosBruto).toFixed(2)
+          const monto = b.total_ingresos_bruto > 0
+            ? b.total_ingresos_bruto
             : b.total_ingresos
           lnLeft(b.banco,                 y, 8)
           lnRight(formatCurrency(monto),  y, 8)
