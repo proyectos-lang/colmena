@@ -519,6 +519,7 @@ export default function AprobacionesPage() {
                   <TableHead>Producto</TableHead>
                   <TableHead>Código</TableHead>
                   <TableHead className="text-right">Cantidad</TableHead>
+                  <TableHead className="text-right">Precio unit.</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
@@ -526,7 +527,7 @@ export default function AprobacionesPage() {
               <TableBody>
                 {pendientesIngresos.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                       No hay cargas de inventario pendientes de aprobación
                     </TableCell>
                   </TableRow>
@@ -552,6 +553,9 @@ export default function AprobacionesPage() {
                       <TableCell>{i.producto_nombre ?? "—"}</TableCell>
                       <TableCell className="font-mono text-sm">{i.producto_codigo ?? "—"}</TableCell>
                       <TableCell className="text-right">{i.cantidad}</TableCell>
+                      <TableCell className="text-right">
+                        {i.costo_unitario != null ? i.costo_unitario.toLocaleString("es") : "—"}
+                      </TableCell>
                       <TableCell><EstadoBadge estado={i.estado ?? "pendiente"} /></TableCell>
                       <TableCell className="text-right space-x-1">
                         {i.estado === "pendiente" && (

@@ -338,6 +338,40 @@ export async function insertProductosMasivoAdmin(
   return { insertados, errores }
 }
 
+export async function checkCodigosBarrasDuplicados(
+  codigos: string[],
+  razonSocialId: number
+): Promise<string[]> {
+  if (codigos.length === 0) return []
+  const supabase = createAdminClient()
+  if (!supabase) return []
+
+  const { data, error } = await supabase
+    .from('productos')
+    .select('codigo_barras')
+    .eq('razon_social_id', razonSocialId)
+    .in('codigo_barras', codigos)
+
+  if (error || !data) return []
+  return data.map((p: any) => String(p.codigo_barras))
+}
+
+export async function updateCodigoBarrasProductoPendiente(
+  id: number,
+  codigoBarras: string
+): Promise<{ error: string | null }> {
+  const supabase = createAdminClient()
+  if (!supabase) return { error: 'Cliente no disponible' }
+
+  const { error } = await supabase
+    .from('productos_pendientes')
+    .update({ codigo_barras: codigoBarras })
+    .eq('id', id)
+    .eq('estado', 'pendiente')
+
+  return { error: error?.message ?? null }
+}
+
 export async function countAprobacionesPendientes(razonSocialId: number): Promise<number> {
   const supabase = createAdminClient()
   if (!supabase) return 0

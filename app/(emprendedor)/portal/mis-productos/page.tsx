@@ -6,6 +6,8 @@ import {
   submitProductoPendiente,
   submitProductosPendientesBulk,
   getProductosPendientesByEmprendimiento,
+  checkCodigosBarrasDuplicados,
+  updateCodigoBarrasProductoPendiente,
   type ProductoPendiente,
 } from "@/lib/services/productos-pendientes"
 import {
@@ -49,7 +51,7 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
-import { Download, Upload, Send, FileSpreadsheet, Plus, ImageIcon, X } from "lucide-react"
+import { Download, Upload, Send, FileSpreadsheet, Plus, ImageIcon, X, Pencil, Check } from "lucide-react"
 import { format } from "date-fns"
 
 const EMPTY_FORM = {
@@ -104,6 +106,14 @@ export default function MisProductosPage() {
   const [excelSending, setExcelSending] = React.useState(false)
   const [excelFileName, setExcelFileName] = React.useState("")
   const fileRef = React.useRef<HTMLInputElement>(null)
+
+  // Validación de códigos duplicados
+  const [barcodesDuplicados, setBarcodesDuplicados] = React.useState<string[]>([])
+
+  // Edición inline de código de barras en historial
+  const [editingBarcodeId, setEditingBarcodeId] = React.useState<number | null>(null)
+  const [editingBarcodeValue, setEditingBarcodeValue] = React.useState("")
+  const [savingBarcode, setSavingBarcode] = React.useState(false)
 
   // Cargar catálogos al montar
   React.useEffect(() => {
@@ -169,6 +179,17 @@ export default function MisProductosPage() {
     }
     setSending(true)
 
+    // Verificar código de barras duplicado en catálogo
+    const duplicados = await checkCodigosBarrasDuplicados(
+      [form.codigo_barras.trim()],
+      emprendedor.razonSocialId
+    )
+    if (duplicados.length > 0) {
+      toast.error(`El código de barras "${form.codigo_barras}" ya existe en el catálogo`)
+      setSending(false)
+      return
+    }
+
     // Subir foto si se seleccionó una
     let fotoUrl: string | null = null
     if (fotoFile) {
@@ -221,6 +242,7 @@ export default function MisProductosPage() {
     const file = e.target.files?.[0]
     if (!file) return
     setExcelFileName(file.name)
+    setBarcodesDuplicados([])
     const buffer = Buffer.from(await file.arrayBuffer())
     const { rows, errors } = parseExcelUpload(buffer)
     setExcelRows(rows)
@@ -230,6 +252,18 @@ export default function MisProductosPage() {
   const enviarMasivo = async () => {
     if (!emprendedor || excelRows.length === 0) return
     setExcelSending(true)
+
+    // Verificar códigos de barras duplicados en catálogo
+    const codigos = excelRows.map((r) => String(r.codigo_barras))
+    const duplicados = await checkCodigosBarrasDuplicados(codigos, emprendedor.razonSocialId)
+    if (duplicados.length > 0) {
+      setBarcodesDuplicados(duplicados)
+      toast.error(`${duplicados.length} código(s) de barras ya existen en el catálogo`)
+      setExcelSending(false)
+      return
+    }
+    setBarcodesDuplicados([])
+
     const { error, insertados } = await submitProductosPendientesBulk(
       excelRows,
       emprendedor.emprendimientoId,
@@ -243,6 +277,26 @@ export default function MisProductosPage() {
     setExcelErrors([])
     setExcelFileName("")
     if (fileRef.current) fileRef.current.value = ""
+    cargarHistorial()
+  }
+
+  const guardarCodigoBarras = async (id: number) => {
+    if (!editingBarcodeValue.trim() || !emprendedor) return
+    setSavingBarcode(true)
+    const duplicados = await checkCodigosBarrasDuplicados(
+      [editingBarcodeValue.trim()],
+      emprendedor.razonSocialId
+    )
+    if (duplicados.length > 0) {
+      toast.error(`El código "${editingBarcodeValue}" ya existe en el catálogo`)
+      setSavingBarcode(false)
+      return
+    }
+    const { error } = await updateCodigoBarrasProductoPendiente(id, editingBarcodeValue.trim())
+    setSavingBarcode(false)
+    if (error) { toast.error(`Error: ${error}`); return }
+    setEditingBarcodeId(null)
+    toast.success("Código de barras actualizado")
     cargarHistorial()
   }
 
@@ -504,6 +558,13 @@ export default function MisProductosPage() {
             </div>
           )}
 
+          {barcodesDuplicados.length > 0 && (
+            <div className="bg-destructive/10 rounded p-3 text-sm text-destructive space-y-1">
+              <p className="font-medium">Códigos de barras ya existentes en el catálogo — corrige antes de enviar:</p>
+              {barcodesDuplicados.map((c, i) => <p key={i}>• {c}</p>)}
+            </div>
+          )}
+
           {excelRows.length > 0 && (
             <>
               <div className="border rounded-md overflow-auto max-h-64">
@@ -517,14 +578,19 @@ export default function MisProductosPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {excelRows.map((r, i) => (
-                      <TableRow key={i}>
-                        <TableCell>{r.nombre}</TableCell>
-                        <TableCell className="font-mono text-sm">{r.codigo_barras}</TableCell>
-                        <TableCell className="text-right">{r.precio_venta_sugerido.toLocaleString("es")}</TableCell>
-                        <TableCell className="text-right">{r.cantidad_inicial ?? 0}</TableCell>
-                      </TableRow>
-                    ))}
+                    {excelRows.map((r, i) => {
+                      const isDup = barcodesDuplicados.includes(String(r.codigo_barras))
+                      return (
+                        <TableRow key={i} className={isDup ? "bg-destructive/10" : ""}>
+                          <TableCell>{r.nombre}</TableCell>
+                          <TableCell className={`font-mono text-sm${isDup ? " text-destructive font-semibold" : ""}`}>
+                            {r.codigo_barras}{isDup && <span className="ml-1 text-xs">(duplicado)</span>}
+                          </TableCell>
+                          <TableCell className="text-right">{r.precio_venta_sugerido.toLocaleString("es")}</TableCell>
+                          <TableCell className="text-right">{r.cantidad_inicial ?? 0}</TableCell>
+                        </TableRow>
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -579,7 +645,56 @@ export default function MisProductosPage() {
                       )}
                     </TableCell>
                     <TableCell>{p.nombre}</TableCell>
-                    <TableCell className="font-mono text-sm">{p.codigo_barras}</TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {editingBarcodeId === p.id ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            className="h-7 w-36 text-sm font-mono px-2"
+                            value={editingBarcodeValue}
+                            onChange={(e) => setEditingBarcodeValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") guardarCodigoBarras(p.id!)
+                              if (e.key === "Escape") setEditingBarcodeId(null)
+                            }}
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            onClick={() => guardarCodigoBarras(p.id!)}
+                            disabled={savingBarcode}
+                            className="rounded p-0.5 text-green-600 hover:bg-green-50 disabled:opacity-40"
+                            title="Guardar"
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingBarcodeId(null)}
+                            className="rounded p-0.5 text-muted-foreground hover:bg-muted"
+                            title="Cancelar"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 group">
+                          <span>{p.codigo_barras}</span>
+                          {p.estado === "pendiente" && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingBarcodeId(p.id!)
+                                setEditingBarcodeValue(p.codigo_barras)
+                              }}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted"
+                              title="Editar código de barras"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">{p.precio_venta_sugerido.toLocaleString("es")}</TableCell>
                     <TableCell><EstadoBadge estado={p.estado} /></TableCell>
                     <TableCell className="text-sm text-muted-foreground">{p.motivo_rechazo ?? "—"}</TableCell>
