@@ -3,6 +3,7 @@
 import * as React from "react"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { EmprendedorSidebar } from "@/components/emprendedor-sidebar"
+import { Toaster } from "sonner"
 
 export function EmprendedorShell({ children }: { children: React.ReactNode }) {
   return (
@@ -16,6 +17,7 @@ export function EmprendedorShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </SidebarInset>
+      <Toaster richColors position="top-right" />
     </SidebarProvider>
   )
 }
