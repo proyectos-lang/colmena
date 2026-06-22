@@ -114,7 +114,7 @@ export async function getProductosPendientesByEmprendimiento(
     .from("productos_pendientes")
     .select("*")
     .eq("emprendimiento_id", emprendimientoId)
-    .order("created_at", { ascending: false })
+    .order("codigo_barras", { ascending: true })
 
   if (error) return []
   return data ?? []

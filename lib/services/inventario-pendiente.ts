@@ -246,7 +246,7 @@ export async function getStockByEmprendimiento(
         .from('productos')
         .select('id, nombre, codigo_barras, precio_venta_sugerido')
         .eq('emprendimiento_id', emprendimientoId)
-        .order('nombre', { ascending: true })
+        .order('codigo_barras', { ascending: true })
         .range(from, from + PAGE - 1)
 
       if (error) {
