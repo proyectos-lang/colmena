@@ -339,21 +339,19 @@ export async function insertProductosMasivoAdmin(
 }
 
 export async function checkCodigosBarrasDuplicados(
-  codigos: string[],
-  razonSocialId: number
+  codigos: string[]
 ): Promise<string[]> {
   if (codigos.length === 0) return []
   const supabase = createAdminClient()
-  if (!supabase) return []
+  if (!supabase) throw new Error('Cliente no disponible')
 
   const { data, error } = await supabase
     .from('productos')
     .select('codigo_barras')
-    .eq('razon_social_id', razonSocialId)
     .in('codigo_barras', codigos)
 
-  if (error || !data) return []
-  return data.map((p: any) => String(p.codigo_barras))
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((p: any) => String(p.codigo_barras))
 }
 
 export async function updateCodigoBarrasProductoPendiente(

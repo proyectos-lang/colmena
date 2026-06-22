@@ -180,12 +180,15 @@ export default function MisProductosPage() {
     setSending(true)
 
     // Verificar código de barras duplicado en catálogo
-    const duplicados = await checkCodigosBarrasDuplicados(
-      [form.codigo_barras.trim()],
-      emprendedor.razonSocialId
-    )
-    if (duplicados.length > 0) {
-      toast.error(`El código de barras "${form.codigo_barras}" ya existe en el catálogo`)
+    try {
+      const duplicados = await checkCodigosBarrasDuplicados([form.codigo_barras.trim()])
+      if (duplicados.length > 0) {
+        toast.error(`El código de barras "${form.codigo_barras}" ya existe en el catálogo`)
+        setSending(false)
+        return
+      }
+    } catch {
+      toast.error("No se pudo verificar el código de barras. Intente de nuevo.")
       setSending(false)
       return
     }
@@ -255,14 +258,20 @@ export default function MisProductosPage() {
 
     // Verificar códigos de barras duplicados en catálogo
     const codigos = excelRows.map((r) => String(r.codigo_barras))
-    const duplicados = await checkCodigosBarrasDuplicados(codigos, emprendedor.razonSocialId)
-    if (duplicados.length > 0) {
-      setBarcodesDuplicados(duplicados)
-      toast.error(`${duplicados.length} código(s) de barras ya existen en el catálogo`)
+    try {
+      const duplicados = await checkCodigosBarrasDuplicados(codigos)
+      if (duplicados.length > 0) {
+        setBarcodesDuplicados(duplicados)
+        toast.error(`${duplicados.length} código(s) de barras ya existen en el catálogo`)
+        setExcelSending(false)
+        return
+      }
+      setBarcodesDuplicados([])
+    } catch {
+      toast.error("No se pudo verificar los códigos de barras. Intente de nuevo.")
       setExcelSending(false)
       return
     }
-    setBarcodesDuplicados([])
 
     const { error, insertados } = await submitProductosPendientesBulk(
       excelRows,
@@ -283,12 +292,15 @@ export default function MisProductosPage() {
   const guardarCodigoBarras = async (id: number) => {
     if (!editingBarcodeValue.trim() || !emprendedor) return
     setSavingBarcode(true)
-    const duplicados = await checkCodigosBarrasDuplicados(
-      [editingBarcodeValue.trim()],
-      emprendedor.razonSocialId
-    )
-    if (duplicados.length > 0) {
-      toast.error(`El código "${editingBarcodeValue}" ya existe en el catálogo`)
+    try {
+      const duplicados = await checkCodigosBarrasDuplicados([editingBarcodeValue.trim()])
+      if (duplicados.length > 0) {
+        toast.error(`El código "${editingBarcodeValue}" ya existe en el catálogo`)
+        setSavingBarcode(false)
+        return
+      }
+    } catch {
+      toast.error("No se pudo verificar el código de barras. Intente de nuevo.")
       setSavingBarcode(false)
       return
     }
