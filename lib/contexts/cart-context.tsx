@@ -12,6 +12,7 @@ export interface LineaCarrito {
   subtotal: number
   utilidad_linea: number
   stock_disponible: number
+  descuento: number  // % descuento por línea (0-100)
 }
 
 export interface CarritoTemporal {

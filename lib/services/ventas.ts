@@ -48,6 +48,7 @@ export interface VentaDetalle {
   precio_unitario: number
   costo_promedio_momento: number
   utilidad_linea: number
+  descuentodetalle?: number  // % descuento por línea (0-100), default 0
 }
 
 export interface PagoVenta {
@@ -262,6 +263,8 @@ export interface LineaVenta {
   precio_unitario: number
   /** Porcentaje de descuento aplicado a la factura (0 si no hubo descuento) */
   descuento: number
+  /** Porcentaje de descuento por línea (0 para registros históricos) */
+  descuentodetalle: number
   /** Método de pago agregado de la venta (Efectivo/Banco/Mixto/Credito/Otro) */
   metodo_pago: string
   /** Valor directo del campo comisionbanc en ventas_encabezado (null si columna no existe aún) */
@@ -355,6 +358,7 @@ export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: str
         producto_id,
         cantidad,
         precio_unitario,
+        descuentodetalle,
         ventas_encabezado (
           numero_factura,
           fecha_venta,
@@ -463,6 +467,7 @@ export async function getLineasVenta(): Promise<{ data: LineaVenta[]; error: str
         cantidad: d.cantidad ?? 0,
         precio_unitario,
         descuento: Number(ve?.descuento ?? 0),
+        descuentodetalle: Number(d.descuentodetalle ?? 0),
         metodo_pago: ve?.metodo_pago ?? pago.metodo,
         comisionbanc: comisionbanc,
         comision_porcentaje,
@@ -661,7 +666,7 @@ export async function crearVenta(
 
     // Fallback: si alguna columna nueva aun no existe en la DB,
     // reintentamos sin esos campos para no bloquear la creacion de ventas.
-    if (ventaError && /valorpago|comisionbanc|metodo_pago/i.test(ventaError.message || '')) {
+    if (ventaError && /valorpago|comisionbanc|metodo_pago|descuentodetalle/i.test(ventaError.message || '')) {
       console.warn('[crearVenta] Columna nueva no existe. Reintentando sin campos nuevos.')
       const { valorpago: _v, comisionbanc: _c, metodo_pago: _m, ...sinCamposNuevos } = encabezadoConAlmacen as
         { valorpago?: number; comisionbanc?: number; metodo_pago?: string | null } & Record<string, unknown>
@@ -681,14 +686,16 @@ export async function crearVenta(
     //    utilidad_linea se recalcula sobre el precio neto para reflejar el
     //    ingreso real del negocio.
     const detallesConVenta = data.detalles.map(d => {
+      const descPct = d.descuentodetalle ?? 0
       if (comisionEfectivaPct > 0) {
         const precioNeto = +(d.precio_unitario * (1 - comisionEfectivaPct / 100)).toFixed(4)
-        const utilidadNeta = +((precioNeto - d.costo_promedio_momento) * d.cantidad).toFixed(4)
+        const utilidadNeta = +((precioNeto * (1 - descPct / 100) - d.costo_promedio_momento) * d.cantidad).toFixed(4)
         return {
           ...d,
           venta_id: ventaData.id,
           razon_social_id: stamp.razon_social_id,
           precio_unitario: precioNeto,
+          descuentodetalle: descPct,
           utilidad_linea: utilidadNeta,
         }
       }
@@ -696,6 +703,7 @@ export async function crearVenta(
         ...d,
         venta_id: ventaData.id,
         razon_social_id: stamp.razon_social_id,
+        descuentodetalle: descPct,
       }
     })
 
@@ -2066,6 +2074,8 @@ export interface VentaEmprendedor {
   subtotal_neto: number // igual a subtotal — no se aplica factor adicional
   /** Porcentaje de descuento aplicado a la factura (0 si no hubo descuento) */
   descuento: number
+  /** Porcentaje de descuento por línea (0 para registros históricos) */
+  descuentodetalle: number
   numero_factura: string
   /** Método de pago consolidado: Efectivo | Banco | Link de pago | Crédito | Mixto | "" */
   metodo_pago: string
@@ -2099,6 +2109,7 @@ export async function getVentasByEmprendimiento(
         venta_id,
         cantidad,
         precio_unitario,
+        descuentodetalle,
         productos!inner(id, nombre, codigo_barras, emprendimiento_id),
         ventas_encabezado!inner(fecha_venta, numero_factura, descuento, metodo_pago)
       `)
@@ -2116,7 +2127,11 @@ export async function getVentasByEmprendimiento(
       const encabezado = Array.isArray(row.ventas_encabezado)
         ? row.ventas_encabezado[0]
         : row.ventas_encabezado
-      const productoSubtotal = +((row.cantidad ?? 0) * (row.precio_unitario ?? 0)).toFixed(2)
+      const descuentodetalle = Number(row.descuentodetalle ?? 0)
+      const descuentoEfectivo = descuentodetalle > 0
+        ? descuentodetalle
+        : Number(encabezado?.descuento ?? 0)
+      const productoSubtotal = +((row.cantidad ?? 0) * (row.precio_unitario ?? 0) * (1 - descuentoEfectivo / 100)).toFixed(2)
       const raw: string = encabezado?.metodo_pago ?? ''
       const metodo_pago = raw === 'Link_Pago' ? 'Link de pago'
                         : raw === 'Credito'   ? 'Crédito'
@@ -2132,6 +2147,7 @@ export async function getVentasByEmprendimiento(
         subtotal: productoSubtotal,
         subtotal_neto: productoSubtotal,
         descuento: Number(encabezado?.descuento ?? 0),
+        descuentodetalle,
         numero_factura: encabezado?.numero_factura ?? '',
         metodo_pago,
       }

@@ -130,10 +130,8 @@ export default function VentasEmprendedorPage() {
 
   const totalPages = Math.max(1, Math.ceil(ventasFiltradas.length / PAGE_SIZE))
   const ventasPagina = ventasFiltradas.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  // Subtotal final por línea = subtotal_neto × (1 - descuento/100)
-  // El descuento es del encabezado de la factura y se distribuye proporcionalmente.
-  const subtotalFinal = (v: { subtotal_neto: number; descuento?: number }) =>
-    +(v.subtotal_neto * (1 - (v.descuento ?? 0) / 100)).toFixed(2)
+  // subtotal_neto ya incluye el descuento efectivo (por línea o global según el caso).
+  const subtotalFinal = (v: VentaEmprendedor) => v.subtotal_neto
 
   const totalVendido = ventas.reduce((s, v) => s + subtotalFinal(v), 0)
   const unidadesVendidas = ventas.reduce((s, v) => s + v.cantidad, 0)
@@ -175,7 +173,7 @@ export default function VentasEmprendedorPage() {
       "Código de Barras": v.codigo_barras,
       Cantidad: v.cantidad,
       "Precio Unitario": v.precio_unitario,
-      "Descuento (%)": v.descuento ?? 0,
+      "Descuento (%)": (v.descuentodetalle ?? 0) > 0 ? (v.descuentodetalle ?? 0) : (v.descuento ?? 0),
       Subtotal: subtotalFinal(v),
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
@@ -389,13 +387,16 @@ export default function VentasEmprendedorPage() {
                         <TableCell className="text-right text-stone-600">{v.cantidad}</TableCell>
                         <TableCell className="text-right text-stone-600 whitespace-nowrap">{fmoney(v.precio_unitario)}</TableCell>
                         <TableCell className="text-right whitespace-nowrap">
-                          {(v.descuento ?? 0) > 0 ? (
-                            <span className="text-xs font-medium text-orange-600 bg-orange-50 rounded px-1.5 py-0.5">
-                              {v.descuento}%
-                            </span>
-                          ) : (
-                            <span className="text-xs text-stone-400">—</span>
-                          )}
+                          {(() => {
+                            const dEfectivo = (v.descuentodetalle ?? 0) > 0 ? (v.descuentodetalle ?? 0) : (v.descuento ?? 0)
+                            return dEfectivo > 0 ? (
+                              <span className="text-xs font-medium text-orange-600 bg-orange-50 rounded px-1.5 py-0.5">
+                                {dEfectivo}%
+                              </span>
+                            ) : (
+                              <span className="text-xs text-stone-400">—</span>
+                            )
+                          })()}
                         </TableCell>
                         <TableCell className="text-right font-semibold text-stone-800 whitespace-nowrap">{fmoney(subtotalFinal(v))}</TableCell>
                       </TableRow>

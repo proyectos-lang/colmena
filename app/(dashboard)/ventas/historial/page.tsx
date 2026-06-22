@@ -353,13 +353,13 @@ export default function HistorialVentasPage() {
       "Almacén": l.almacen_nombre ?? "",
       "Estado": l.estado_pago ?? "",
       "Comisión Bancaria (%)": l.comisionbanc != null ? Number(l.comisionbanc) : 0,
-      "Descuento (%)": l.descuento ?? 0,
+      "Descuento (%)": (l.descuentodetalle ?? 0) > 0 ? (l.descuentodetalle ?? 0) : (l.descuento ?? 0),
       "Producto": l.producto_nombre ?? "",
       "Código": l.codigo_barras ?? "",
       "Cantidad": l.cantidad ?? 0,
       "Precio Unit. Bruto (L)": Number((l.precio_bruto_unitario ?? 0).toFixed(2)),
       "Precio Unit. Neto (L)": Number(l.precio_neto_unitario.toFixed(2)),
-      "Subtotal Final (L)": Number((((l.cantidad ?? 0) * l.precio_neto_unitario) * (1 - (l.descuento ?? 0) / 100)).toFixed(2)),
+      "Subtotal Final (L)": Number((((l.cantidad ?? 0) * l.precio_neto_unitario) * (1 - ((l.descuentodetalle ?? 0) > 0 ? (l.descuentodetalle ?? 0) : (l.descuento ?? 0)) / 100)).toFixed(2)),
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
     ws["!cols"] = [
@@ -450,7 +450,8 @@ export default function HistorialVentasPage() {
     let itemY = descY + 18
     doc.setFontSize(10); doc.setFont("helvetica", "normal")
     detallesVenta.forEach(d => {
-      const sub = (d.cantidad ?? 0) * (d.precio_unitario ?? 0)
+      const descLinea = d.descuentodetalle ?? 0
+      const sub = +((d.cantidad ?? 0) * (d.precio_unitario ?? 0) * (1 - descLinea / 100)).toFixed(2)
       doc.setTextColor(30, 30, 30)
       doc.text(`${d.producto_nombre || ""} (x${d.cantidad})`, 20, itemY)
       doc.text(`L ${sub.toFixed(2)}`, pageWidth - 20, itemY, { align: "right" })
@@ -460,16 +461,24 @@ export default function HistorialVentasPage() {
       itemY += 12
     })
     const tY = Math.max(itemY + 15, 180)
+    // subtotalFactura = suma de (precio × cant × (1 - desc%)) para cada línea
+    const subtotalFactura = detallesVenta.reduce((acc, d) => {
+      const desc = d.descuentodetalle ?? 0
+      return acc + (d.cantidad ?? 0) * (d.precio_unitario ?? 0) * (1 - desc / 100)
+    }, 0)
+    // fallback para ventas antiguas con descuento global
     const descPctHist = Number(venta.descuento ?? 0)
-    const descMontoHist = (venta.subtotal ?? 0) * (descPctHist / 100)
+    const descMontoHist = descPctHist > 0
+      ? +((venta.subtotal ?? 0) * (descPctHist / 100)).toFixed(2)
+      : +((venta.subtotal ?? 0) - subtotalFactura).toFixed(2)
+    const hasDesc = descMontoHist > 0
     doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.setTextColor(100, 100, 100)
     doc.text("Subtotal", pageWidth - 80, tY); doc.setTextColor(30, 30, 30)
     doc.text(`L ${(venta.subtotal ?? 0).toFixed(2)}`, pageWidth - 20, tY, { align: "right" })
     let tOff = 12
-    if (descPctHist > 0) {
+    if (hasDesc) {
       doc.setTextColor(100, 100, 100)
-      const pctLbl = descPctHist % 1 === 0 ? `${descPctHist.toFixed(0)}%` : `${descPctHist.toFixed(2)}%`
-      doc.text(`Descuento (${pctLbl})`, pageWidth - 80, tY + tOff)
+      doc.text(`Descuento`, pageWidth - 80, tY + tOff)
       doc.setTextColor(30, 30, 30)
       doc.text(`- L ${descMontoHist.toFixed(2)}`, pageWidth - 20, tY + tOff, { align: "right" })
       tOff += 12
@@ -746,7 +755,8 @@ export default function HistorialVentasPage() {
               <Card className="p-8 text-center text-muted-foreground rounded-2xl">No hay líneas de venta registradas</Card>
             ) : lineasPagina.map(linea => {
               const tieneComision = linea.comision_porcentaje > 0
-              const subtotalNeto = +((linea.cantidad ?? 0) * linea.precio_neto_unitario * (1 - (linea.descuento ?? 0) / 100)).toFixed(2)
+              const descuentoEfectivo = (linea.descuentodetalle ?? 0) > 0 ? (linea.descuentodetalle ?? 0) : (linea.descuento ?? 0)
+              const subtotalNeto = +((linea.cantidad ?? 0) * linea.precio_neto_unitario * (1 - descuentoEfectivo / 100)).toFixed(2)
               return (
                 <Card key={linea.detalle_id} className="rounded-2xl shadow-sm border border-stone-200">
                   <div className="p-4">
@@ -764,9 +774,9 @@ export default function HistorialVentasPage() {
                         ) : (
                           <span className="text-xs text-stone-400">Sin comisión</span>
                         )}
-                        {(linea.descuento ?? 0) > 0 && (
+                        {descuentoEfectivo > 0 && (
                           <span className="text-xs font-medium text-orange-600 bg-orange-50 rounded px-1.5 py-0.5">
-                            Desc. {linea.descuento}%
+                            Desc. {descuentoEfectivo}%
                           </span>
                         )}
                       </div>
@@ -856,7 +866,8 @@ export default function HistorialVentasPage() {
                         </TableRow>
                       ) : lineasPagina.map(linea => {
                         const tieneComision = linea.comision_porcentaje > 0
-                        const subtotalNeto = +((linea.cantidad ?? 0) * linea.precio_neto_unitario * (1 - (linea.descuento ?? 0) / 100)).toFixed(2)
+                        const descuentoEfectivo = (linea.descuentodetalle ?? 0) > 0 ? (linea.descuentodetalle ?? 0) : (linea.descuento ?? 0)
+              const subtotalNeto = +((linea.cantidad ?? 0) * linea.precio_neto_unitario * (1 - descuentoEfectivo / 100)).toFixed(2)
                         return (
                           <TableRow key={linea.detalle_id} className="hover:bg-stone-50/50">
                             <TableCell>
@@ -878,9 +889,9 @@ export default function HistorialVentasPage() {
                               )}
                             </TableCell>
                             <TableCell className="text-right whitespace-nowrap">
-                              {(linea.descuento ?? 0) > 0 ? (
+                              {descuentoEfectivo > 0 ? (
                                 <span className="text-xs font-medium text-orange-600 bg-orange-50 rounded px-1.5 py-0.5">
-                                  {linea.descuento}%
+                                  {descuentoEfectivo}%
                                 </span>
                               ) : (
                                 <span className="text-xs text-stone-400">—</span>

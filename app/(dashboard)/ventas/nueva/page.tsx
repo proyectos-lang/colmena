@@ -109,12 +109,13 @@ function printReciboTermico(
   const MESES    = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
   const fechaStr = `${DIAS[fechaV.getDay()]} ${fechaV.getDate()} de ${MESES[fechaV.getMonth()]} de ${fechaV.getFullYear()}`
 
-  const subtotal   = enc.subtotal ?? 0
-  const descPct    = enc.descuento ?? 0
-  const descMonto  = subtotal * (descPct / 100)
-  // La factura siempre muestra el valor que paga el cliente (bruto).
-  // enc.total_venta tiene la comisión bancaria deducida — no se imprime.
-  const total      = +(subtotal - descMonto).toFixed(2)
+  const subtotalBrutoTirilla = enc.subtotal ?? 0
+  // total = suma de subtotales netos por línea (precio × cant × (1 - desc%))
+  const total = +ventaData.detalles.reduce((acc, d) => {
+    const desc = d.descuentodetalle ?? 0
+    return acc + (d.cantidad ?? 0) * (d.precio_unitario ?? 0) * (1 - desc / 100)
+  }, 0).toFixed(2)
+  const descMonto = +(subtotalBrutoTirilla - total).toFixed(2)
   const sumaPagos  = pagosDetalle.reduce((s, p) => s + (Number(p.monto_bruto) || 0), 0)
   const cambio     = Math.max(0, sumaPagos - total)
   const metodoPago = pagosDetalle.length > 0
@@ -125,11 +126,13 @@ function printReciboTermico(
     const nombre   = (d.producto_nombre || '').toUpperCase()
     const cant     = d.cantidad ?? 0
     const precio   = d.precio_unitario ?? 0
-    const linTotal = cant * precio
+    const desc     = d.descuentodetalle ?? 0
+    const descMonto = +(cant * precio * desc / 100).toFixed(2)
+    const linTotal  = +(cant * precio * (1 - desc / 100)).toFixed(2)
     return `
       <div class="prod-name">${nombre}</div>
       <div class="prod-line">
-        <span>${cant} X ${precio.toFixed(2)} &nbsp;- 0.00 =</span>
+        <span>${cant} X ${precio.toFixed(2)} &nbsp;- ${descMonto.toFixed(2)} =</span>
         <span>${linTotal.toFixed(2)}</span>
       </div>`
   }).join('<div class="line-dash"></div>')
@@ -213,7 +216,7 @@ function printReciboTermico(
 
   <div class="line-double"></div>
 
-  <div class="tot-row"><span>SUB TOTAL</span><span>L. ${subtotal.toFixed(2)}</span></div>
+  <div class="tot-row"><span>SUB TOTAL</span><span>L. ${subtotalBrutoTirilla.toFixed(2)}</span></div>
   <div class="tot-row"><span>(-) DESCUENTOS Y REBAJAS OTORGADOS</span><span>L. ${descMonto.toFixed(2)}</span></div>
 
   <div class="line-solid"></div>
@@ -475,8 +478,8 @@ export default function NuevaVentaPage() {
     setLoadingStock(false)
   }
 
-  function calculateUtilidadLinea(cantidad: number, precio: number, costo: number): number {
-    return (precio - costo) * cantidad
+  function calculateUtilidadLinea(cantidad: number, precio: number, costo: number, descPct = 0): number {
+    return (precio * (1 - descPct / 100) - costo) * cantidad
   }
 
   async function addProducto(producto: Producto) {
@@ -502,7 +505,8 @@ export default function NuevaVentaPage() {
         costo_promedio: producto.costo_promedio || 0,
         subtotal: producto.precio_venta_sugerido,
         utilidad_linea: calculateUtilidadLinea(1, producto.precio_venta_sugerido, producto.costo_promedio || 0),
-        stock_disponible: stockDisponible
+        stock_disponible: stockDisponible,
+        descuento: 0,
       }])
     }
   }
@@ -511,8 +515,9 @@ export default function NuevaVentaPage() {
     setLineas(lineas.map((l, i) => {
       if (i === index) {
         const newCantidad = Math.max(1, l.cantidad + delta)
-        const newSubtotal = newCantidad * l.precio_unitario
-        const newUtilidad = calculateUtilidadLinea(newCantidad, l.precio_unitario, l.costo_promedio)
+        const descPct = l.descuento ?? 0
+        const newSubtotal = +(newCantidad * l.precio_unitario * (1 - descPct / 100)).toFixed(2)
+        const newUtilidad = calculateUtilidadLinea(newCantidad, l.precio_unitario, l.costo_promedio, descPct)
         return { ...l, cantidad: newCantidad, subtotal: newSubtotal, utilidad_linea: newUtilidad }
       }
       return l
@@ -522,9 +527,22 @@ export default function NuevaVentaPage() {
   function updatePrecio(index: number, precio: number) {
     setLineas(lineas.map((l, i) => {
       if (i === index) {
-        const newSubtotal = l.cantidad * precio
-        const newUtilidad = calculateUtilidadLinea(l.cantidad, precio, l.costo_promedio)
+        const descPct = l.descuento ?? 0
+        const newSubtotal = +(l.cantidad * precio * (1 - descPct / 100)).toFixed(2)
+        const newUtilidad = calculateUtilidadLinea(l.cantidad, precio, l.costo_promedio, descPct)
         return { ...l, precio_unitario: precio, subtotal: newSubtotal, utilidad_linea: newUtilidad }
+      }
+      return l
+    }))
+  }
+
+  function updateDescuento(index: number, pct: number) {
+    setLineas(lineas.map((l, i) => {
+      if (i === index) {
+        const descPct = Math.min(100, Math.max(0, Number.isFinite(pct) ? pct : 0))
+        const newSubtotal = +(l.cantidad * l.precio_unitario * (1 - descPct / 100)).toFixed(2)
+        const newUtilidad = calculateUtilidadLinea(l.cantidad, l.precio_unitario, l.costo_promedio, descPct)
+        return { ...l, descuento: descPct, subtotal: newSubtotal, utilidad_linea: newUtilidad }
       }
       return l
     }))
@@ -628,16 +646,18 @@ export default function NuevaVentaPage() {
     }
   }
 
-  const subtotal = lineas.reduce((acc, l) => acc + l.subtotal, 0)
-  // Normalizamos el descuento a un rango seguro [0, 100].
-  const descuentoPctSafe = Math.min(100, Math.max(0, Number.isFinite(descuentoPct) ? descuentoPct : 0))
-  const montoDescuento = subtotal * (descuentoPctSafe / 100)
-  const subtotalNeto = subtotal - montoDescuento
+  // subtotalBruto = precio × cantidad de cada línea (sin descuentos por línea)
+  const subtotalBruto = lineas.reduce((acc, l) => acc + l.cantidad * l.precio_unitario, 0)
+  // subtotalNeto = l.subtotal ya incluye el descuento por línea
+  const subtotalNeto = lineas.reduce((acc, l) => acc + l.subtotal, 0)
+  const montoDescuentoTotal = +(subtotalBruto - subtotalNeto).toFixed(2)
   // ISV INCLUIDO en precio: se extrae del precio (no se suma encima).
   // El precio de venta ya contiene el 15%; isv = subtotalNeto * 0.15/1.15.
   const isv = aplicaIsv ? subtotalNeto * (0.15 / 1.15) : 0
   // `total` = lo que paga el cliente (= subtotalNeto, el ISV ya está incluido).
   const total = subtotalNeto
+  // Alias para compatibilidad con lógica de pago (montoDescuento legacy → 0 para nuevas ventas)
+  const subtotal = subtotalBruto
   const totalItems = lineas.reduce((acc, l) => acc + l.cantidad, 0)
 
   // Cambio para pago en efectivo: cuando TODOS los métodos son Efectivo se
@@ -827,8 +847,8 @@ export default function NuevaVentaPage() {
         // fecha_venta defaults to now() in database
         aplica_impuesto: aplicaIsv,
         porcentaje_impuesto: 15,
-        descuento: descuentoPctSafe,
-        subtotal,
+        descuento: 0,           // descuento global siempre 0; el descuento está en cada línea
+        subtotal: subtotalBruto, // precio bruto antes de descuentos por línea
         impuesto_total: isv,
         // Persistimos el NETO: lo que efectivamente recibe el comercio
         // despues de comisiones bancarias del desglose de pagos. Asi los
@@ -843,6 +863,7 @@ export default function NuevaVentaPage() {
         producto_id: l.producto_id,
         cantidad: l.cantidad,
         precio_unitario: l.precio_unitario,
+        descuentodetalle: l.descuento ?? 0,
         costo_promedio_momento: l.costo_promedio,
         utilidad_linea: l.utilidad_linea
       }))
@@ -875,20 +896,21 @@ export default function NuevaVentaPage() {
       toast({ title: "Venta creada", description: `Factura ${numeroFactura} generada correctamente` })
       
       const ventaData = {
-        encabezado: { 
-          ...encabezado, 
+        encabezado: {
+          ...encabezado,
           id: data?.id,
           cliente_nombre: selectedCliente?.nombre || "",
           fecha_venta: new Date().toISOString()
         },
-        detalles: lineas.map((l, i) => ({ 
-          id: i + 1, 
+        detalles: lineas.map((l, i) => ({
+          id: i + 1,
           venta_id: data?.id || 0,
           producto_id: l.producto_id,
           producto_nombre: l.producto_nombre,
           producto_codigo: l.producto_codigo,
           cantidad: l.cantidad,
           precio_unitario: l.precio_unitario,
+          descuentodetalle: l.descuento ?? 0,
           costo_promedio_momento: l.costo_promedio,
           utilidad_linea: l.utilidad_linea
         }))
@@ -1009,13 +1031,12 @@ export default function NuevaVentaPage() {
     
     // === ITEMS List ===
     let itemY = descY + 18
-    const lineSubtotal = (cantidad: number, precio: number) => cantidad * precio
-    
     doc.setFontSize(10)
     doc.setFont("helvetica", "bold")
 
     ventaData.detalles.forEach((d, index) => {
-      const subtotal = lineSubtotal(d.cantidad ?? 0, d.precio_unitario ?? 0)
+      const desc = d.descuentodetalle ?? 0
+      const subtotal = +((d.cantidad ?? 0) * (d.precio_unitario ?? 0) * (1 - desc / 100)).toFixed(2)
 
       // Item name with quantity
       doc.setTextColor(30, 30, 30)
@@ -1052,21 +1073,19 @@ export default function NuevaVentaPage() {
     doc.line(pageWidth - 80, totalsY + 3, pageWidth - 20, totalsY + 3)
     doc.setLineDashPattern([], 0)
     
-    // Descuento (opcional): solo se imprime si hay porcentaje > 0
-    const descuentoPctPdf = Number(ventaData.encabezado.descuento ?? 0)
-    const hasDescuento = descuentoPctPdf > 0
-    const descuentoMonto = (ventaData.encabezado.subtotal ?? 0) * (descuentoPctPdf / 100)
-    // Total bruto que paga el cliente (sin deducir comisiones bancarias).
-    // enc.total_venta almacena el neto tras comisiones — no se imprime en factura.
-    const totalFactura = +((ventaData.encabezado.subtotal ?? 0) - descuentoMonto).toFixed(2)
+    // Total bruto que paga el cliente = suma de subtotales netos por línea.
+    // enc.subtotal es el bruto antes de descuentos por línea.
+    const totalFactura = +ventaData.detalles.reduce((acc, d) => {
+      const desc = d.descuentodetalle ?? 0
+      return acc + (d.cantidad ?? 0) * (d.precio_unitario ?? 0) * (1 - desc / 100)
+    }, 0).toFixed(2)
+    const descuentoMonto = +((ventaData.encabezado.subtotal ?? 0) - totalFactura).toFixed(2)
+    const hasDescuento = descuentoMonto > 0
     let rowOffset = 12
     if (hasDescuento) {
       doc.setTextColor(100, 100, 100)
       doc.setFont("helvetica", "normal")
-      const pctLabel = descuentoPctPdf % 1 === 0
-        ? `${descuentoPctPdf.toFixed(0)}%`
-        : `${descuentoPctPdf.toFixed(2)}%`
-      doc.text(`Descuento (${pctLabel})`, pageWidth - 80, totalsY + rowOffset)
+      doc.text(`Descuento`, pageWidth - 80, totalsY + rowOffset)
       doc.setTextColor(30, 30, 30)
       doc.setFont("helvetica", "bold")
       doc.text(`- L ${descuentoMonto.toFixed(2)}`, pageWidth - 20, totalsY + rowOffset, { align: "right" })
@@ -1519,8 +1538,23 @@ export default function NuevaVentaPage() {
                         />
                       </div>
 
+                      {/* Discount input */}
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={(linea.descuento ?? 0) === 0 ? "" : linea.descuento}
+                          placeholder="0"
+                          onChange={(e) => updateDescuento(index, e.target.value === "" ? 0 : parseFloat(e.target.value) || 0)}
+                          className="text-right h-7 w-12 px-1 text-xs"
+                        />
+                        <span className="text-xs text-muted-foreground">%</span>
+                      </div>
+
                       {/* Line Subtotal */}
-                      <div className="text-right shrink-0 min-w-[64px]">
+                      <div className="text-right shrink-0 min-w-[60px]">
                         <p className="font-bold text-sm">L {(linea.subtotal ?? 0).toFixed(2)}</p>
                       </div>
                     </div>
@@ -1588,37 +1622,6 @@ export default function NuevaVentaPage() {
             </p>
           </div>
         )}
-
-        {/* Descuento */}
-        <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
-          <Label htmlFor="descuento-input" className="text-sm">Descuento (%)</Label>
-          <div className="relative w-28">
-            <Input
-              id="descuento-input"
-              type="number"
-              inputMode="decimal"
-              min={0}
-              max={100}
-              step={0.01}
-              value={descuentoPct === 0 ? "" : descuentoPct}
-              placeholder="0"
-              onChange={(e) => {
-                const raw = e.target.value
-                if (raw === "") {
-                  setDescuentoPct(0)
-                  return
-                }
-                const parsed = Number(raw)
-                if (!Number.isFinite(parsed)) return
-                setDescuentoPct(Math.min(100, Math.max(0, parsed)))
-              }}
-              className="pr-7 text-right"
-            />
-            <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-muted-foreground">
-              %
-            </span>
-          </div>
-        </div>
 
         {/* Desglose de Pago (multi-metodo) */}
         <div className="px-4 py-3 border-b space-y-3">
@@ -1838,21 +1841,19 @@ export default function NuevaVentaPage() {
         <div className="flex-1 p-3 md:p-4 flex flex-col justify-end">
           <div className="space-y-2 md:space-y-3">
             <div className="flex justify-between text-xs md:text-sm">
-              <span className="text-muted-foreground">Articulos ({totalItems})</span>
-              <span>L {subtotal.toFixed(2)}</span>
+              <span className="text-muted-foreground">Artículos ({totalItems})</span>
+              <span>L {subtotalBruto.toFixed(2)}</span>
             </div>
-            <div className="flex justify-between text-xs md:text-sm">
-              <span className="text-muted-foreground">Subtotal</span>
-              <span>L {subtotal.toFixed(2)}</span>
-            </div>
-            {descuentoPctSafe > 0 && (
+            {montoDescuentoTotal > 0 && (
               <div className="flex justify-between text-xs md:text-sm">
-                <span className="text-muted-foreground">
-                  Descuento ({descuentoPctSafe.toFixed(descuentoPctSafe % 1 === 0 ? 0 : 2)}%)
-                </span>
-                <span className="text-primary">- L {montoDescuento.toFixed(2)}</span>
+                <span className="text-muted-foreground">Descuentos</span>
+                <span className="text-primary">- L {montoDescuentoTotal.toFixed(2)}</span>
               </div>
             )}
+            <div className="flex justify-between text-xs md:text-sm">
+              <span className="text-muted-foreground">Subtotal</span>
+              <span>L {subtotalNeto.toFixed(2)}</span>
+            </div>
             {totalComisionesR > 0 && (
               <>
                 <div className="flex justify-between text-xs md:text-sm">
