@@ -38,8 +38,29 @@ const CartContext = React.createContext<CartContextValue>({
   eliminarCarrito: () => {},
 })
 
+const STORAGE_KEY = "colmena_carritos_temporales"
+
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [cartesTemporales, setCartesTemporales] = React.useState<CarritoTemporal[]>([])
+  const [cartesTemporales, setCartesTemporales] = React.useState<CarritoTemporal[]>(() => {
+    if (typeof window === "undefined") return []
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY)
+      if (!stored) return []
+      const parsed: CarritoTemporal[] = JSON.parse(stored)
+      // savedAt se serializa como string ISO; reconvertir a Date
+      return parsed.map(c => ({ ...c, savedAt: new Date(c.savedAt) }))
+    } catch {
+      return []
+    }
+  })
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(cartesTemporales))
+    } catch {
+      // localStorage lleno o no disponible
+    }
+  }, [cartesTemporales])
 
   const agregarCarrito = React.useCallback((carrito: CarritoTemporal) => {
     setCartesTemporales(prev => [...prev, carrito])
