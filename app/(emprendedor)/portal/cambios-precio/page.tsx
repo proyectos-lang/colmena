@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useEmprendedorAuth } from "@/lib/contexts/emprendedor-auth-context"
-import { getStockByEmprendimiento, type StockEmprendedor } from "@/lib/services/inventario-pendiente"
+import { buscarProductosByEmprendimiento } from "@/lib/services/inventario-pendiente"
 import {
   submitCambioPrecio,
   getCambiosPrecioByEmprendimiento,
@@ -14,13 +14,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   Table,
   TableBody,
   TableCell,
@@ -30,7 +23,14 @@ import {
 } from "@/components/ui/table"
 import { toast } from "sonner"
 import { format } from "date-fns"
-import { Tag } from "lucide-react"
+import { Loader2, Search, Tag, X } from "lucide-react"
+
+type ProductoResultado = {
+  producto_id: number
+  nombre: string
+  codigo_barras: string
+  precio_venta_sugerido: number
+}
 
 function EstadoBadge({ estado }: { estado: string }) {
   if (estado === "aprobado") return <Badge className="bg-green-600 text-white">Aprobado</Badge>
@@ -43,33 +43,58 @@ export default function CambiosPrecioPage() {
   const emprendimientoId = emprendedor?.emprendimientoId ?? 0
   const razonSocialId = emprendedor?.razonSocialId ?? 0
 
-  const [productos, setProductos] = React.useState<StockEmprendedor[]>([])
   const [historial, setHistorial] = React.useState<CambioPrecioPendiente[]>([])
-  const [loadingProds, setLoadingProds] = React.useState(true)
   const [loadingHist, setLoadingHist] = React.useState(true)
   const [submitting, setSubmitting] = React.useState(false)
 
-  const [productoId, setProductoId] = React.useState("")
+  // Búsqueda
+  const [query, setQuery] = React.useState("")
+  const [resultados, setResultados] = React.useState<ProductoResultado[]>([])
+  const [buscando, setBuscando] = React.useState(false)
+  const [buscado, setBuscado] = React.useState(false)
+
+  // Selección
+  const [productoSeleccionado, setProductoSeleccionado] = React.useState<ProductoResultado | null>(null)
+
+  // Formulario
   const [precioNuevo, setPrecioNuevo] = React.useState("")
   const [motivo, setMotivo] = React.useState("")
 
-  const productoSeleccionado = productos.find((p) => String(p.producto_id) === productoId)
-
-  const cargar = React.useCallback(async () => {
+  const cargarHistorial = React.useCallback(async () => {
     if (!emprendimientoId) return
-    setLoadingProds(true)
     setLoadingHist(true)
-    const [prods, hist] = await Promise.all([
-      getStockByEmprendimiento(emprendimientoId, razonSocialId),
-      getCambiosPrecioByEmprendimiento(emprendimientoId),
-    ])
-    setProductos(prods)
-    setLoadingProds(false)
+    const hist = await getCambiosPrecioByEmprendimiento(emprendimientoId)
     setHistorial(hist)
     setLoadingHist(false)
-  }, [emprendimientoId, razonSocialId])
+  }, [emprendimientoId])
 
-  React.useEffect(() => { cargar() }, [cargar])
+  React.useEffect(() => { cargarHistorial() }, [cargarHistorial])
+
+  async function handleBuscar() {
+    if (!query.trim() || !emprendimientoId) return
+    setBuscando(true)
+    setBuscado(false)
+    setResultados([])
+    const res = await buscarProductosByEmprendimiento(emprendimientoId, query)
+    setResultados(res)
+    setBuscando(false)
+    setBuscado(true)
+  }
+
+  function seleccionarProducto(p: ProductoResultado) {
+    setProductoSeleccionado(p)
+    setPrecioNuevo("")
+    setResultados([])
+    setBuscado(false)
+  }
+
+  function limpiarSeleccion() {
+    setProductoSeleccionado(null)
+    setPrecioNuevo("")
+    setQuery("")
+    setResultados([])
+    setBuscado(false)
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -105,10 +130,9 @@ export default function CambiosPrecioPage() {
     }
 
     toast.success("Solicitud enviada correctamente")
-    setProductoId("")
-    setPrecioNuevo("")
+    limpiarSeleccion()
     setMotivo("")
-    cargar()
+    cargarHistorial()
   }
 
   return (
@@ -128,29 +152,91 @@ export default function CambiosPrecioPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* ── Buscador de producto ── */}
           <div className="space-y-1.5">
-            <Label>Producto</Label>
-            {loadingProds ? (
-              <p className="text-sm text-stone-400">Cargando productos...</p>
+            <Label>Buscar producto</Label>
+
+            {productoSeleccionado ? (
+              <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                <div className="flex-1 min-w-0">
+                  <span className="font-mono text-xs text-stone-500 mr-2">
+                    {productoSeleccionado.codigo_barras}
+                  </span>
+                  <span className="text-sm font-medium text-stone-800">
+                    {productoSeleccionado.nombre}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={limpiarSeleccion}
+                  className="shrink-0 text-stone-400 hover:text-stone-600"
+                  title="Cambiar producto"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             ) : (
-              <Select
-                value={productoId}
-                onValueChange={(v) => { setProductoId(v); setPrecioNuevo("") }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecciona un producto" />
-                </SelectTrigger>
-                <SelectContent>
-                  {productos.map((p) => (
-                    <SelectItem key={p.producto_id} value={String(p.producto_id)}>
-                      {p.codigo_barras} — {p.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Nombre o código de barras..."
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); handleBuscar() }
+                    }}
+                    autoComplete="off"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={handleBuscar}
+                    disabled={buscando || !query.trim()}
+                    className="shrink-0"
+                    title="Buscar"
+                  >
+                    {buscando
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <Search className="h-4 w-4" />
+                    }
+                  </Button>
+                </div>
+
+                {/* Resultados */}
+                {resultados.length > 0 && (
+                  <div className="rounded-lg border border-stone-200 divide-y divide-stone-100 max-h-52 overflow-y-auto shadow-sm">
+                    {resultados.map((p) => (
+                      <button
+                        key={p.producto_id}
+                        type="button"
+                        className="w-full text-left px-3 py-2 hover:bg-stone-50 flex items-center justify-between gap-3 transition-colors"
+                        onClick={() => seleccionarProducto(p)}
+                      >
+                        <div className="min-w-0">
+                          <span className="font-mono text-xs text-stone-400 mr-2">
+                            {p.codigo_barras}
+                          </span>
+                          <span className="text-sm text-stone-800">{p.nombre}</span>
+                        </div>
+                        <span className="text-sm font-medium text-stone-600 shrink-0">
+                          L {p.precio_venta_sugerido.toLocaleString("es")}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {buscado && resultados.length === 0 && (
+                  <p className="text-sm text-stone-400">
+                    No se encontraron productos con ese nombre o código.
+                  </p>
+                )}
+              </>
             )}
           </div>
 
+          {/* Precio actual (solo lectura) */}
           {productoSeleccionado && (
             <div className="space-y-1.5">
               <Label>Precio actual</Label>
@@ -192,7 +278,7 @@ export default function CambiosPrecioPage() {
 
           <Button
             type="submit"
-            disabled={submitting || !productoId || !precioNuevo}
+            disabled={submitting || !productoSeleccionado || !precioNuevo}
             className="w-full text-white"
             style={{ background: "#78350f" }}
           >

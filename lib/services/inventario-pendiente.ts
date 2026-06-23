@@ -218,6 +218,40 @@ export async function rechazarIngresoPendiente(
   return { error: error?.message ?? null }
 }
 
+// ==================== BÚSQUEDA DE PRODUCTOS POR EMPRENDIMIENTO ====================
+
+export async function buscarProductosByEmprendimiento(
+  emprendimientoId: number,
+  query: string,
+  limit = 100
+): Promise<Omit<StockEmprendedor, "stock_total">[]> {
+  const supabase = createAdminClient()
+  if (!supabase) return []
+
+  const q = query.trim()
+  if (!q) return []
+
+  const { data, error } = await supabase
+    .from("productos")
+    .select("id, nombre, codigo_barras, precio_venta_sugerido")
+    .eq("emprendimiento_id", emprendimientoId)
+    .or(`nombre.ilike.%${q}%,codigo_barras.ilike.%${q}%`)
+    .order("codigo_barras", { ascending: true })
+    .limit(limit)
+
+  if (error) {
+    console.error("[inventario] Error buscarProductosByEmprendimiento:", error)
+    return []
+  }
+
+  return (data ?? []).map((p: any) => ({
+    producto_id: p.id,
+    nombre: p.nombre,
+    codigo_barras: p.codigo_barras ?? "",
+    precio_venta_sugerido: p.precio_venta_sugerido ?? 0,
+  }))
+}
+
 // ==================== STOCK POR EMPRENDIMIENTO ====================
 
 export interface StockEmprendedor {
