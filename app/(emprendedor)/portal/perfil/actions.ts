@@ -21,8 +21,14 @@ export async function cambiarPasswordEmprendedor(
     .single()
 
   if (error || !data) return { error: "Usuario no encontrado" }
+  if (!data.password_hash) return { error: "La cuenta no tiene contraseña configurada. Contacta al administrador." }
 
-  const match = await bcrypt.compare(passwordActual, data.password_hash)
+  let match: boolean
+  try {
+    match = await bcrypt.compare(passwordActual, data.password_hash)
+  } catch {
+    return { error: "Error al verificar la contraseña. Contacta al administrador." }
+  }
   if (!match) return { error: "La contraseña actual es incorrecta" }
 
   const nuevoHash = await bcrypt.hash(passwordNueva, 10)
@@ -31,5 +37,6 @@ export async function cambiarPasswordEmprendedor(
     .update({ password_hash: nuevoHash })
     .eq("id", usuarioId)
 
-  return { error: updateError?.message ?? null }
+  if (updateError) return { error: updateError.message }
+  return { error: null }
 }

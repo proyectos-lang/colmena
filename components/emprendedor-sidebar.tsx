@@ -67,12 +67,17 @@ export function EmprendedorSidebar() {
     if (!emprendedor) return
     if (nueva !== confirmar) { toast.error("Las contraseñas nuevas no coinciden"); return }
     setSaving(true)
-    const { error } = await cambiarPasswordEmprendedor(emprendedor.id, actual, nueva)
-    setSaving(false)
-    if (error) { toast.error(error); return }
-    toast.success("Contraseña actualizada correctamente")
-    setOpenPass(false)
-    resetForm()
+    try {
+      const { error } = await cambiarPasswordEmprendedor(emprendedor.id, actual, nueva)
+      if (error) { toast.error(error); return }
+      toast.success("Contraseña actualizada correctamente")
+      setOpenPass(false)
+      resetForm()
+    } catch {
+      toast.error("Error inesperado al cambiar la contraseña. Intente de nuevo.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
