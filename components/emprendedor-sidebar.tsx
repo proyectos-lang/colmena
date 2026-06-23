@@ -5,7 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEmprendedorAuth } from "@/lib/contexts/emprendedor-auth-context"
 import { logoutAction } from "@/app/login-emprendedor/actions"
-import { LayoutDashboard, Package, Boxes, BarChart3, LogOut, KeyRound, Eye, EyeOff } from "lucide-react"
+import { LayoutDashboard, Package, Boxes, BarChart3, LogOut, KeyRound, Eye, EyeOff, Tag } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -35,6 +35,7 @@ const NAV_ITEMS = [
   { href: "/portal/mis-productos", label: "Crear nuevo producto", icon: Package },
   { href: "/portal/inventario", label: "Restock", icon: Boxes },
   { href: "/portal/ventas", label: "Ventas", icon: BarChart3 },
+  { href: "/portal/cambios-precio", label: "Cambios de precio", icon: Tag },
 ]
 
 function getInitials(name: string) {

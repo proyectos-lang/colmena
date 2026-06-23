@@ -374,7 +374,7 @@ export async function countAprobacionesPendientes(razonSocialId: number): Promis
   const supabase = createAdminClient()
   if (!supabase) return 0
 
-  const [r1, r2] = await Promise.all([
+  const [r1, r2, r3] = await Promise.all([
     supabase
       .from("productos_pendientes")
       .select("id", { count: "exact", head: true })
@@ -385,7 +385,12 @@ export async function countAprobacionesPendientes(razonSocialId: number): Promis
       .select("id", { count: "exact", head: true })
       .eq("razon_social_id", razonSocialId)
       .eq("estado", "pendiente"),
+    supabase
+      .from("cambios_precio_pendientes")
+      .select("id", { count: "exact", head: true })
+      .eq("razon_social_id", razonSocialId)
+      .eq("estado", "pendiente"),
   ])
 
-  return (r1.count ?? 0) + (r2.count ?? 0)
+  return (r1.count ?? 0) + (r2.count ?? 0) + (r3.count ?? 0)
 }

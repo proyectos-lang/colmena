@@ -14,6 +14,12 @@ import {
   rechazarIngresoPendiente,
   type IngresoPendiente,
 } from "@/lib/services/inventario-pendiente"
+import {
+  getCambiosPrecioPendientes,
+  aprobarCambioPrecio,
+  rechazarCambioPrecio,
+  type CambioPrecioPendiente,
+} from "@/lib/services/cambios-precio"
 import { getAlmacenes, getLocalizaciones } from "@/lib/services/catalogos"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -44,7 +50,7 @@ import {
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
-import { CheckCircle, XCircle, ImageIcon, CheckSquare, Loader2 } from "lucide-react"
+import { CheckCircle, XCircle, ImageIcon, CheckSquare, Loader2, Tag } from "lucide-react"
 import { format } from "date-fns"
 
 function EstadoBadge({ estado }: { estado: string }) {
@@ -60,6 +66,7 @@ export default function AprobacionesPage() {
 
   const [productosPendientes, setProductosPendientes] = React.useState<ProductoPendiente[]>([])
   const [ingresosPendientes, setIngresosPendientes] = React.useState<IngresoPendiente[]>([])
+  const [cambiosPendientes, setCambiosPendientes] = React.useState<CambioPrecioPendiente[]>([])
   const [loading, setLoading] = React.useState(true)
   const [almacenes, setAlmacenes] = React.useState<any[]>([])
   const [localizaciones, setLocalizaciones] = React.useState<any[]>([])
@@ -67,10 +74,15 @@ export default function AprobacionesPage() {
   // Selección individual
   const [rechazoOpen, setRechazoOpen] = React.useState(false)
   const [rechazoMotivo, setRechazoMotivo] = React.useState("")
-  const [rechazoTarget, setRechazoTarget] = React.useState<{ tipo: "producto" | "ingreso"; id: number } | null>(null)
+  const [rechazoTarget, setRechazoTarget] = React.useState<{ tipo: "producto" | "ingreso" | "cambio"; id: number } | null>(null)
 
   const [aprobarOpen, setAprobarOpen] = React.useState(false)
-  const [aprobarTarget, setAprobarTarget] = React.useState<{ tipo: "producto" | "ingreso"; id: number; tieneCantidad: boolean } | null>(null)
+  const [aprobarTarget, setAprobarTarget] = React.useState<{
+    tipo: "producto" | "ingreso" | "cambio"
+    id: number
+    tieneCantidad: boolean
+    cambioInfo?: { producto_nombre: string; precio_actual: number; precio_nuevo: number }
+  } | null>(null)
   const [almacenSeleccionado, setAlmacenSeleccionado] = React.useState("")
   const [localizacionSeleccionada, setLocalizacionSeleccionada] = React.useState("")
 
@@ -89,14 +101,16 @@ export default function AprobacionesPage() {
   const cargar = React.useCallback(async () => {
     if (!razonSocialId) return
     setLoading(true)
-    const [prods, ingresos, alms] = await Promise.all([
+    const [prods, ingresos, alms, cambios] = await Promise.all([
       getProductosPendientes(razonSocialId),
       getIngresosPendientes(razonSocialId),
       getAlmacenes(),
+      getCambiosPrecioPendientes(razonSocialId),
     ])
     setProductosPendientes(prods)
     setIngresosPendientes(ingresos)
     setAlmacenes(alms.data ?? [])
+    setCambiosPendientes(cambios)
     setLoading(false)
   }, [razonSocialId])
 
@@ -136,6 +150,7 @@ export default function AprobacionesPage() {
 
   const pendientesProductos = productosPendientes.filter((p) => p.estado === "pendiente")
   const pendientesIngresos  = ingresosPendientes.filter((i) => i.estado === "pendiente")
+  const pendientesCambios   = cambiosPendientes.filter((c) => c.estado === "pendiente")
 
   const todosProductosSeleccionados =
     pendientesProductos.length > 0 && pendientesProductos.every((p) => selProductos.has(p.id!))
@@ -169,7 +184,7 @@ export default function AprobacionesPage() {
   // ── Aprobación individual ────────────────────────────────────────────────
 
   const abrirAprobar = (tipo: "producto" | "ingreso", id: number, tieneCantidad: boolean) => {
-    setAprobarTarget({ tipo, id, tieneCantidad })
+    setAprobarTarget({ tipo, id, tieneCantidad, cambioInfo: undefined })
     setAlmacenSeleccionado("")
     setLocalizacionSeleccionada("")
     setAprobarOpen(true)
@@ -199,13 +214,16 @@ export default function AprobacionesPage() {
           localizacionId
         )
         error = res.error
-      } else {
+      } else if (aprobarTarget.tipo === "ingreso") {
         const res = await aprobarIngresoPendiente(
           aprobarTarget.id,
           user?.nombre ?? "admin",
           Number(almacenSeleccionado),
           Number(localizacionSeleccionada)
         )
+        error = res.error
+      } else {
+        const res = await aprobarCambioPrecio(aprobarTarget.id, user?.nombre ?? "admin")
         error = res.error
       }
 
@@ -291,7 +309,7 @@ export default function AprobacionesPage() {
 
   // ── Rechazo ──────────────────────────────────────────────────────────────
 
-  const abrirRechazo = (tipo: "producto" | "ingreso", id: number) => {
+  const abrirRechazo = (tipo: "producto" | "ingreso" | "cambio", id: number) => {
     setRechazoTarget({ tipo, id })
     setRechazoMotivo("")
     setRechazoOpen(true)
@@ -304,8 +322,10 @@ export default function AprobacionesPage() {
     }
     if (rechazoTarget.tipo === "producto") {
       await rechazarProductoPendiente(rechazoTarget.id, rechazoMotivo)
-    } else {
+    } else if (rechazoTarget.tipo === "ingreso") {
       await rechazarIngresoPendiente(rechazoTarget.id, rechazoMotivo)
+    } else {
+      await rechazarCambioPrecio(rechazoTarget.id, rechazoMotivo)
     }
     toast({ title: "Rechazado", description: "El registro fue rechazado" })
     setRechazoOpen(false)
@@ -341,6 +361,14 @@ export default function AprobacionesPage() {
               {pendientesIngresos.length > 0 && (
                 <Badge variant="destructive" className="ml-2 h-5 min-w-5 text-xs">
                   {pendientesIngresos.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="cambios">
+              Cambios de Precio
+              {pendientesCambios.length > 0 && (
+                <Badge variant="destructive" className="ml-2 h-5 min-w-5 text-xs">
+                  {pendientesCambios.length}
                 </Badge>
               )}
             </TabsTrigger>
@@ -585,6 +613,92 @@ export default function AprobacionesPage() {
               </TableBody>
             </Table>
           </TabsContent>
+          {/* ── TAB CAMBIOS DE PRECIO ── */}
+          <TabsContent value="cambios" className="mt-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Emprendimiento</TableHead>
+                  <TableHead>Producto</TableHead>
+                  <TableHead>Código</TableHead>
+                  <TableHead className="text-right">Precio actual</TableHead>
+                  <TableHead className="text-right">Precio nuevo</TableHead>
+                  <TableHead className="text-right">Diferencia</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {cambiosPendientes.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                      No hay solicitudes de cambio de precio pendientes
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  cambiosPendientes.map((c) => {
+                    const diff = c.precio_nuevo - c.precio_actual
+                    return (
+                      <TableRow key={c.id}>
+                        <TableCell className="text-sm">
+                          {c.created_at ? format(new Date(c.created_at), "dd/MM/yyyy") : "—"}
+                        </TableCell>
+                        <TableCell className="font-medium">{c.emprendimiento_nombre ?? "—"}</TableCell>
+                        <TableCell>{c.producto_nombre}</TableCell>
+                        <TableCell className="font-mono text-sm">{c.codigo_barras}</TableCell>
+                        <TableCell className="text-right">{c.precio_actual.toLocaleString("es")}</TableCell>
+                        <TableCell className="text-right font-medium">{c.precio_nuevo.toLocaleString("es")}</TableCell>
+                        <TableCell className={`text-right text-sm font-medium ${diff >= 0 ? "text-green-700" : "text-destructive"}`}>
+                          {diff >= 0 ? "+" : ""}{diff.toLocaleString("es", { minimumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell><EstadoBadge estado={c.estado ?? "pendiente"} /></TableCell>
+                        <TableCell className="text-right space-x-1">
+                          {c.estado === "pendiente" && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-green-600"
+                                onClick={() => {
+                                  setAprobarTarget({
+                                    tipo: "cambio",
+                                    id: c.id!,
+                                    tieneCantidad: false,
+                                    cambioInfo: {
+                                      producto_nombre: c.producto_nombre,
+                                      precio_actual: c.precio_actual,
+                                      precio_nuevo: c.precio_nuevo,
+                                    },
+                                  })
+                                  setAlmacenSeleccionado("")
+                                  setLocalizacionSeleccionada("")
+                                  setAprobarOpen(true)
+                                }}
+                              >
+                                <CheckCircle className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-destructive"
+                                onClick={() => abrirRechazo("cambio", c.id!)}
+                              >
+                                <XCircle className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                          {c.estado === "rechazado" && c.motivo_rechazo && (
+                            <span className="text-xs text-muted-foreground">{c.motivo_rechazo}</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </TabsContent>
         </Tabs>
       )}
 
@@ -592,10 +706,24 @@ export default function AprobacionesPage() {
       <Dialog open={aprobarOpen} onOpenChange={setAprobarOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Aprobar {aprobarTarget?.tipo === "producto" ? "producto" : "carga de inventario"}</DialogTitle>
+            <DialogTitle>
+              Aprobar{" "}
+              {aprobarTarget?.tipo === "producto"
+                ? "producto"
+                : aprobarTarget?.tipo === "ingreso"
+                  ? "carga de inventario"
+                  : "cambio de precio"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {(aprobarTarget?.tieneCantidad || aprobarTarget?.tipo === "ingreso") ? (
+            {aprobarTarget?.tipo === "cambio" ? (
+              <p className="text-sm text-muted-foreground">
+                Se actualizará el precio de{" "}
+                <strong>{aprobarTarget.cambioInfo?.producto_nombre}</strong> de{" "}
+                <strong>L {aprobarTarget.cambioInfo?.precio_actual.toLocaleString("es")}</strong> a{" "}
+                <strong>L {aprobarTarget.cambioInfo?.precio_nuevo.toLocaleString("es")}</strong>.
+              </p>
+            ) : (aprobarTarget?.tieneCantidad || aprobarTarget?.tipo === "ingreso") ? (
               <>
                 <p className="text-sm text-muted-foreground">
                   Selecciona el almacén y localización donde se registrará el ingreso de inventario. Ambos son obligatorios.
