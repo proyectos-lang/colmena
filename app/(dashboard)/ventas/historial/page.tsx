@@ -850,37 +850,36 @@ export default function HistorialVentasPage() {
           {/* Desktop */}
           <Card className="hidden md:block rounded-2xl shadow-sm border border-stone-200">
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <div style={{ maxHeight: 480 }} className="overflow-y-auto">
-                  <Table>
+              <div style={{ maxHeight: 480 }} className="overflow-y-auto">
+                  <Table className="table-fixed w-full">
                     <TableHeader>
                       <TableRow className="bg-stone-50 border-b border-stone-200 shadow-[0_1px_3px_0_rgba(0,0,0,0.06)]">
-                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Emprendimiento</TableHead>
-                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Fecha</TableHead>
-                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">N° Factura</TableHead>
-                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Cliente</TableHead>
-                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Producto</TableHead>
-                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10 text-right">Com. Bancaria</TableHead>
-                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Descuento</TableHead>
-                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Cant.</TableHead>
-                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10 whitespace-nowrap">
-                          <div className="leading-tight">Precio Unit. (neto)</div>
+                        <TableHead className="w-[10%] font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Emprendimiento</TableHead>
+                        <TableHead className="w-[7%]  font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Fecha</TableHead>
+                        <TableHead className="w-[8%]  font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">N° Factura</TableHead>
+                        <TableHead className="w-[9%]  font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Cliente</TableHead>
+                        <TableHead className="w-[13%] font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Producto</TableHead>
+                        <TableHead className="w-[7%]  font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10 text-right">Com.</TableHead>
+                        <TableHead className="w-[6%]  font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Desc.</TableHead>
+                        <TableHead className="w-[4%]  font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Cant.</TableHead>
+                        <TableHead className="w-[11%] font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">
+                          <div className="leading-tight">P. Unit. neto</div>
                           {lineasFiltradas.length > 0 && (
                             <div className="text-xs font-bold text-stone-900 border-t border-stone-300 mt-1 pt-1">
                               L {sumaPrecioUnitNeto.toLocaleString("es", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                           )}
                         </TableHead>
-                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10 whitespace-nowrap">
-                          <div className="leading-tight">Subtotal final</div>
+                        <TableHead className="w-[10%] font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">
+                          <div className="leading-tight">Subtotal</div>
                           {lineasFiltradas.length > 0 && (
                             <div className="text-xs font-bold text-stone-900 border-t border-stone-300 mt-1 pt-1">
                               L {sumaSubtotalFinal.toLocaleString("es", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                           )}
                         </TableHead>
-                        <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Estado</TableHead>
-                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Acciones</TableHead>
+                        <TableHead className="w-[8%]  font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Estado</TableHead>
+                        <TableHead className="w-[7%]  font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Acc.</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -896,15 +895,19 @@ export default function HistorialVentasPage() {
               const subtotalNeto = +((linea.cantidad ?? 0) * linea.precio_neto_unitario * (1 - descuentoEfectivo / 100)).toFixed(2)
                         return (
                           <TableRow key={linea.detalle_id} className="hover:bg-stone-50/50">
-                            <TableCell>
+                            <TableCell className="overflow-hidden max-w-0">
                               {linea.emprendimiento_nombre
-                                ? <span className="font-medium text-amber-700">{linea.emprendimiento_nombre}</span>
+                                ? <div className="truncate font-medium text-amber-700" title={linea.emprendimiento_nombre}>{linea.emprendimiento_nombre}</div>
                                 : <span className="text-stone-400">—</span>}
                             </TableCell>
                             <TableCell className="whitespace-nowrap text-stone-600">{linea.fecha_venta?.split('T')[0] || ''}</TableCell>
-                            <TableCell className="font-mono font-medium whitespace-nowrap">{linea.numero_factura}</TableCell>
-                            <TableCell className="text-stone-600">{linea.cliente_nombre}</TableCell>
-                            <TableCell className="font-medium text-stone-800">{linea.producto_nombre}</TableCell>
+                            <TableCell className="font-mono font-medium whitespace-nowrap text-xs">{linea.numero_factura}</TableCell>
+                            <TableCell className="overflow-hidden max-w-0">
+                              <div className="truncate text-stone-600" title={linea.cliente_nombre ?? ''}>{linea.cliente_nombre}</div>
+                            </TableCell>
+                            <TableCell className="overflow-hidden max-w-0">
+                              <div className="truncate font-medium text-stone-800" title={linea.producto_nombre ?? ''}>{linea.producto_nombre}</div>
+                            </TableCell>
                             <TableCell className="text-right whitespace-nowrap">
                               {linea.comisionbanc != null && linea.comisionbanc > 0 ? (
                                 <span className="text-xs font-medium text-blue-700 bg-blue-50 rounded px-1.5 py-0.5">
@@ -959,7 +962,6 @@ export default function HistorialVentasPage() {
                       })}
                     </TableBody>
                   </Table>
-                </div>
               </div>
               {/* Paginación desktop */}
               {lineasFiltradas.length > 0 && (
