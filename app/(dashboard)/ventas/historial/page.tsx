@@ -224,6 +224,18 @@ export default function HistorialVentasPage() {
     pagLineas * PAGE_SIZE_LINEAS
   )
 
+  // Totales de las columnas numéricas sobre todas las líneas filtradas
+  const { sumaPrecioUnitNeto, sumaSubtotalFinal } = React.useMemo(() => {
+    let sumaPrecioUnitNeto = 0
+    let sumaSubtotalFinal = 0
+    for (const l of lineasFiltradas) {
+      const descEfectivo = (l.descuentodetalle ?? 0) > 0 ? (l.descuentodetalle ?? 0) : (l.descuento ?? 0)
+      sumaPrecioUnitNeto += l.precio_neto_unitario
+      sumaSubtotalFinal += (l.cantidad ?? 0) * l.precio_neto_unitario * (1 - descEfectivo / 100)
+    }
+    return { sumaPrecioUnitNeto, sumaSubtotalFinal }
+  }, [lineasFiltradas])
+
   // ventasFiltradas kept for PDF generation compatibility
   const ventasFiltradas = React.useMemo(() => ventas, [ventas])
 
@@ -842,7 +854,7 @@ export default function HistorialVentasPage() {
                 <div style={{ maxHeight: 480 }} className="overflow-y-auto">
                   <Table>
                     <TableHeader>
-                      <TableRow className="bg-stone-50 border-b border-stone-200">
+                      <TableRow className="bg-stone-50 border-b border-stone-200 shadow-[0_1px_3px_0_rgba(0,0,0,0.06)]">
                         <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Emprendimiento</TableHead>
                         <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Fecha</TableHead>
                         <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">N° Factura</TableHead>
@@ -851,8 +863,22 @@ export default function HistorialVentasPage() {
                         <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10 text-right">Com. Bancaria</TableHead>
                         <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Descuento</TableHead>
                         <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Cant.</TableHead>
-                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Precio Unit. (neto)</TableHead>
-                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Subtotal final</TableHead>
+                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10 whitespace-nowrap">
+                          <div className="leading-tight">Precio Unit. (neto)</div>
+                          {lineasFiltradas.length > 0 && (
+                            <div className="text-xs font-bold text-stone-900 border-t border-stone-300 mt-1 pt-1">
+                              L {sumaPrecioUnitNeto.toLocaleString("es", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                          )}
+                        </TableHead>
+                        <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10 whitespace-nowrap">
+                          <div className="leading-tight">Subtotal final</div>
+                          {lineasFiltradas.length > 0 && (
+                            <div className="text-xs font-bold text-stone-900 border-t border-stone-300 mt-1 pt-1">
+                              L {sumaSubtotalFinal.toLocaleString("es", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                          )}
+                        </TableHead>
                         <TableHead className="font-semibold text-stone-700 sticky top-0 bg-stone-50 z-10">Estado</TableHead>
                         <TableHead className="font-semibold text-stone-700 text-right sticky top-0 bg-stone-50 z-10">Acciones</TableHead>
                       </TableRow>
