@@ -33,7 +33,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 type Periodo = "este_mes" | "mes_pasado" | "personalizado"
 
 function fmoney(n: number) {
-  return "L " + new Intl.NumberFormat("es-HN", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n)
+  return "L " + new Intl.NumberFormat("es-HN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
 
 /* ─── Tooltip personalizado ─── */
