@@ -2079,6 +2079,8 @@ export interface VentaEmprendedor {
   numero_factura: string
   /** Método de pago consolidado: Efectivo | Banco | Link de pago | Crédito | Mixto | "" */
   metodo_pago: string
+  /** Estado de pago de la venta: Pendiente | Parcial | Pagado */
+  estado_pago: string
 }
 
 function resolverMetodoPago(metodos: string[]): string {
@@ -2111,7 +2113,7 @@ export async function getVentasByEmprendimiento(
         precio_unitario,
         descuentodetalle,
         productos!inner(id, nombre, codigo_barras, emprendimiento_id),
-        ventas_encabezado!inner(fecha_venta, numero_factura, descuento, metodo_pago)
+        ventas_encabezado!inner(fecha_venta, numero_factura, descuento, metodo_pago, estado_pago)
       `)
       .eq('productos.emprendimiento_id', emprendimientoId)
       .gte('ventas_encabezado.fecha_venta', desde)
@@ -2150,6 +2152,7 @@ export async function getVentasByEmprendimiento(
         descuentodetalle,
         numero_factura: encabezado?.numero_factura ?? '',
         metodo_pago,
+        estado_pago: encabezado?.estado_pago ?? 'Pendiente',
       }
     })
   } catch (err) {

@@ -24,11 +24,20 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts"
-import { Download, DollarSign, Package, ShoppingBag, TrendingUp, ChevronLeft, ChevronRight } from "lucide-react"
+import { Download, DollarSign, Package, ShoppingBag, TrendingUp, ChevronLeft, ChevronRight, CheckCircle2 } from "lucide-react"
 import { format, subMonths, startOfMonth, endOfMonth } from "date-fns"
 import { es } from "date-fns/locale"
 import * as XLSX from "xlsx"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { marcarVentaPagadaEmprendedor } from "./actions"
+import { toast } from "sonner"
 
 type Periodo = "este_mes" | "mes_pasado" | "personalizado"
 
@@ -95,6 +104,8 @@ export default function VentasEmprendedorPage() {
   const [loading, setLoading] = React.useState(true)
   const [page, setPage] = React.useState(1)
   const [busqueda, setBusqueda] = React.useState("")
+  const [confirmVentaId, setConfirmVentaId] = React.useState<number | null>(null)
+  const [markingPaid, setMarkingPaid] = React.useState(false)
   const PAGE_SIZE = 50
 
   const aplicarPeriodo = React.useCallback((p: Periodo) => {
@@ -182,10 +193,60 @@ export default function VentasEmprendedorPage() {
     XLSX.writeFile(wb, `ventas_${desde}_${hasta}.xlsx`)
   }
 
+  async function handleMarcarPagado() {
+    if (!confirmVentaId || !emprendedor) return
+    setMarkingPaid(true)
+    try {
+      const { error } = await marcarVentaPagadaEmprendedor(confirmVentaId, emprendedor.emprendimientoId)
+      if (error) { toast.error(error); return }
+      toast.success("Venta marcada como pagada")
+      setConfirmVentaId(null)
+      // Refrescar datos
+      getVentasByEmprendimiento(emprendedor.emprendimientoId, desde + "T00:00:00", hasta + "T23:59:59")
+        .then((data) => { setVentas(data); setPage(1) })
+    } catch {
+      toast.error("Error inesperado. Intente de nuevo.")
+    } finally {
+      setMarkingPaid(false)
+    }
+  }
+
   /* ─── Altura dinámica del gráfico horizontal ─── */
   const chartHeight = Math.max(220, ventasPorProducto.length * 42)
 
+  /* ─── Venta seleccionada para confirmación ─── */
+  const ventaConfirm = confirmVentaId ? ventas.find(v => v.venta_id === confirmVentaId) : null
+
   return (
+    <>
+    <Dialog open={confirmVentaId !== null} onOpenChange={(open) => { if (!open) setConfirmVentaId(null) }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-base font-semibold text-stone-800">¿Marcar como pagado?</DialogTitle>
+        </DialogHeader>
+        <div className="py-2 text-sm text-stone-600">
+          {ventaConfirm && (
+            <p>
+              Se marcará la factura <span className="font-mono font-medium text-stone-800">{ventaConfirm.numero_factura}</span> como <span className="font-semibold text-emerald-700">Pagada</span>.
+            </p>
+          )}
+          <p className="mt-2 text-xs text-stone-400">Esta acción cambia el estado de pago en el sistema. Asegúrate de haber recibido el pago antes de confirmar.</p>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" className="flex-1" onClick={() => setConfirmVentaId(null)} disabled={markingPaid}>
+            Cancelar
+          </Button>
+          <Button
+            className="flex-1 text-white bg-emerald-600 hover:bg-emerald-700"
+            onClick={handleMarcarPagado}
+            disabled={markingPaid}
+          >
+            {markingPaid ? "Guardando…" : "Confirmar"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
     <div className="space-y-6 -m-4 md:-m-6 p-4 md:p-6 min-h-screen bg-gradient-to-br from-stone-50 via-amber-50/20 to-orange-50/30">
 
       {/* Encabezado */}
@@ -365,12 +426,14 @@ export default function VentasEmprendedorPage() {
                     <TableHead className="text-right text-stone-500">Precio unit.</TableHead>
                     <TableHead className="text-right text-stone-500">Descuento</TableHead>
                     <TableHead className="text-right text-stone-500">Subtotal</TableHead>
+                    <TableHead className="text-stone-500">Estado</TableHead>
+                    <TableHead className="text-stone-500"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {ventasPagina.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center text-stone-400 py-10">
+                      <TableCell colSpan={11} className="text-center text-stone-400 py-10">
                         {busqueda ? "Sin resultados para la búsqueda" : "Sin ventas en el período seleccionado"}
                       </TableCell>
                     </TableRow>
@@ -399,6 +462,27 @@ export default function VentasEmprendedorPage() {
                           })()}
                         </TableCell>
                         <TableCell className="text-right font-semibold text-stone-800 whitespace-nowrap">{fmoney(subtotalFinal(v))}</TableCell>
+                        <TableCell>
+                          {v.estado_pago === "Pagado" ? (
+                            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-700">Pagado</span>
+                          ) : v.estado_pago === "Parcial" ? (
+                            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-amber-50 text-amber-700">Parcial</span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-red-50 text-red-600">Pendiente</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {v.estado_pago !== "Pagado" && (
+                            <button
+                              onClick={() => setConfirmVentaId(v.venta_id)}
+                              title="Marcar como pagado"
+                              className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Cobrado
+                            </button>
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
@@ -430,5 +514,6 @@ export default function VentasEmprendedorPage() {
         )}
       </div>
     </div>
+    </>
   )
 }
