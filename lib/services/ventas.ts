@@ -2023,6 +2023,45 @@ export async function eliminarLineaVenta(
       .eq('razon_social_id', stamp.razon_social_id)
 
     if (!restantes || restantes.length === 0) {
+      // Revertir movimientos bancarios: ajustar saldo cacheado y borrar registros
+      const { data: movsCuenta } = await supabase
+        .from('cuenta_movimientos')
+        .select('cuenta_id, monto, tipo')
+        .eq('ref_tipo', 'venta')
+        .eq('ref_id', ventaId)
+        .eq('razon_social_id', stamp.razon_social_id)
+
+      for (const mc of movsCuenta ?? []) {
+        const { data: cuenta } = await supabase
+          .from('cuentas_config')
+          .select('saldo')
+          .eq('id', mc.cuenta_id)
+          .eq('razon_social_id', stamp.razon_social_id)
+          .single()
+        if (cuenta) {
+          const delta = mc.tipo === 'Ingreso' ? -Number(mc.monto || 0) : Number(mc.monto || 0)
+          await supabase
+            .from('cuentas_config')
+            .update({ saldo: +(Number(cuenta.saldo ?? 0) + delta).toFixed(2) })
+            .eq('id', mc.cuenta_id)
+            .eq('razon_social_id', stamp.razon_social_id)
+        }
+      }
+
+      await supabase
+        .from('cuenta_movimientos')
+        .delete()
+        .eq('ref_tipo', 'venta')
+        .eq('ref_id', ventaId)
+        .eq('razon_social_id', stamp.razon_social_id)
+
+      await supabase
+        .from('caja_chica_movimientos')
+        .delete()
+        .eq('ref_tipo', 'venta')
+        .eq('ref_id', ventaId)
+        .eq('razon_social_id', stamp.razon_social_id)
+
       // No lines remain: clean up the sale
       await supabase.from('ventas_pagos_detalle').delete().eq('venta_id', ventaId).eq('razon_social_id', stamp.razon_social_id)
       await supabase.from('pagos_ventas').delete().eq('venta_id', ventaId).eq('razon_social_id', stamp.razon_social_id)
