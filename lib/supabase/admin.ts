@@ -25,7 +25,7 @@ export function createAdminClient(): SupabaseClient | null {
       autoRefreshToken: false,
       persistSession: false,
     },
-    db: { schema: 'emprendedores' },
+    db: { schema: 'colmena' },
   })
 }
 
