@@ -13,7 +13,6 @@ export interface ExcelProductoRow {
 export interface RawInventarioRow {
   codigo_barras: string
   cantidad: number
-  costo_unitario?: number | null
 }
 
 export function generateExcelTemplate(): Buffer {
@@ -70,11 +69,11 @@ export function parseExcelUpload(buffer: Buffer): { rows: ExcelProductoRow[]; er
 }
 
 export function generateInventarioExcelTemplate(): Buffer {
-  const headers = ["codigo_barras", "cantidad", "costo_unitario"]
-  const example = ["COD-001", 5, 15000]
+  const headers = ["codigo_barras", "cantidad"]
+  const example = ["COD-001", 5]
 
   const ws = XLSX.utils.aoa_to_sheet([headers, example])
-  ws["!cols"] = [{ wch: 20 }, { wch: 12 }, { wch: 16 }]
+  ws["!cols"] = [{ wch: 20 }, { wch: 12 }]
 
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, "Inventario")
@@ -101,7 +100,6 @@ export function parseInventarioExcelRaw(buffer: Buffer): { rows: RawInventarioRo
     rows.push({
       codigo_barras: codigoBarras,
       cantidad,
-      costo_unitario: row["costo_unitario"] !== "" ? parseFloat(row["costo_unitario"]) : null,
     })
   })
 

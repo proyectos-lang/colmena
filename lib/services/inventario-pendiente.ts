@@ -73,7 +73,7 @@ export async function submitIngresosBulkFromCodigos(
       producto_id: producto.id,
       almacen_id: almacenId ?? null,
       cantidad: row.cantidad,
-      costo_unitario: row.costo_unitario ?? null,
+      costo_unitario: null,
       usuario,
     })
   }

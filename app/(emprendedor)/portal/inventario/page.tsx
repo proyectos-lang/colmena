@@ -126,7 +126,6 @@ export default function InventarioPage() {
   const [productoSeleccionado, setProductoSeleccionado] = React.useState<StockEmprendedor | null>(null)
 
   const [cantidad, setCantidad] = React.useState("")
-  const [costo, setCosto] = React.useState("")
   const [almacenId, setAlmacenId] = React.useState("")
   const [sending, setSending] = React.useState(false)
 
@@ -209,13 +208,13 @@ export default function InventarioPage() {
       producto_id:       productoSeleccionado.producto_id,
       almacen_id:        Number(almacenId),
       cantidad:          parseFloat(cantidad),
-      costo_unitario:    costo ? parseFloat(costo) : null,
+      costo_unitario:    null,
       usuario:           emprendedor.usuario,
     })
     setSending(false)
     if (error) { toast({ title: "Error", description: error, variant: "destructive" }); return }
     toast({ title: "Enviado", description: "Ingreso enviado para aprobación" })
-    setProductoSeleccionado(null); setCantidad(""); setCosto(""); setAlmacenId(""); setBusqueda("")
+    setProductoSeleccionado(null); setCantidad(""); setAlmacenId(""); setBusqueda("")
     cargar()
   }
 
@@ -459,15 +458,6 @@ export default function InventarioPage() {
                   type="number" min={1}
                   value={cantidad}
                   onChange={(e) => setCantidad(e.target.value)}
-                  disabled={!productoSeleccionado}
-                />
-              </div>
-              <div>
-                <Label className="text-stone-600">Costo unitario</Label>
-                <Input
-                  type="number" min={0}
-                  value={costo}
-                  onChange={(e) => setCosto(e.target.value)}
                   disabled={!productoSeleccionado}
                 />
               </div>

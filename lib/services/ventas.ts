@@ -2157,6 +2157,7 @@ export async function getVentasByEmprendimiento(
       .eq('productos.emprendimiento_id', emprendimientoId)
       .gte('ventas_encabezado.fecha_venta', desde)
       .lte('ventas_encabezado.fecha_venta', hasta)
+      .order('venta_id', { ascending: false })
 
     if (error) {
       console.error('[ventas] Error getVentasByEmprendimiento:', error)
@@ -2168,6 +2169,7 @@ export async function getVentasByEmprendimiento(
       const encabezado = Array.isArray(row.ventas_encabezado)
         ? row.ventas_encabezado[0]
         : row.ventas_encabezado
+
       const descuentodetalle = Number(row.descuentodetalle ?? 0)
       const descuentoEfectivo = descuentodetalle > 0
         ? descuentodetalle
@@ -2193,7 +2195,7 @@ export async function getVentasByEmprendimiento(
         metodo_pago,
         estado_pago: encabezado?.estado_pago ?? 'Pendiente',
       }
-    })
+    }).sort((a, b) => b.fecha_venta.localeCompare(a.fecha_venta))
   } catch (err) {
     console.error('[ventas] Excepcion getVentasByEmprendimiento:', err)
     return []
