@@ -233,7 +233,7 @@ export async function buscarProductosByEmprendimiento(
 
   const { data, error } = await supabase
     .from("productos")
-    .select("id, nombre, codigo_barras, precio_venta_sugerido, created_at")
+    .select("id, nombre, codigo_barras, precio_venta_sugerido")
     .eq("emprendimiento_id", emprendimientoId)
     .or(`nombre.ilike.%${q}%,codigo_barras.ilike.%${q}%`)
     .order("codigo_barras", { ascending: true })
@@ -249,7 +249,6 @@ export async function buscarProductosByEmprendimiento(
     nombre: p.nombre,
     codigo_barras: p.codigo_barras ?? "",
     precio_venta_sugerido: p.precio_venta_sugerido ?? 0,
-    created_at: p.created_at ?? "",
   }))
 }
 
@@ -261,7 +260,7 @@ export interface StockEmprendedor {
   codigo_barras: string
   precio_venta_sugerido: number
   stock_total: number
-  created_at: string
+  created_at?: string
 }
 
 export async function getStockByEmprendimiento(
@@ -280,7 +279,7 @@ export async function getStockByEmprendimiento(
     while (true) {
       const { data, error } = await supabase
         .from('productos')
-        .select('id, nombre, codigo_barras, precio_venta_sugerido, created_at')
+        .select('id, nombre, codigo_barras, precio_venta_sugerido')
         .eq('emprendimiento_id', emprendimientoId)
         .order('codigo_barras', { ascending: true })
         .range(from, from + PAGE - 1)
@@ -328,7 +327,6 @@ export async function getStockByEmprendimiento(
       codigo_barras: p.codigo_barras ?? '',
       precio_venta_sugerido: p.precio_venta_sugerido ?? 0,
       stock_total: stockMap[p.id] ?? 0,
-      created_at: p.created_at ?? '',
     }))
   } catch (err) {
     console.error('[inventario] Excepcion getStockByEmprendimiento:', err)
