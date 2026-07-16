@@ -41,7 +41,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/hooks/use-toast"
-import { Download, Upload, Send, FileSpreadsheet, CalendarClock, ChevronLeft, ChevronRight, Search, X } from "lucide-react"
+import { Download, Upload, Send, FileSpreadsheet, CalendarClock, ChevronLeft, ChevronRight, Search, X, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react"
 import { format, subDays, differenceInDays, parseISO } from "date-fns"
 import { es } from "date-fns/locale"
 
@@ -106,6 +106,8 @@ function DiasSinVentaBadge({ dias }: { dias: number | null }) {
   )
 }
 
+type SortKey = 'nombre' | 'codigo_barras' | 'precio_venta_sugerido' | 'stock_total' | 'created_at'
+
 export default function InventarioPage() {
   const { emprendedor } = useEmprendedorAuth()
   const { toast } = useToast()
@@ -113,6 +115,8 @@ export default function InventarioPage() {
   const [stockLoading, setStockLoading] = React.useState(true)
   const [stockPage, setStockPage] = React.useState(1)
   const [stockBusqueda, setStockBusqueda] = React.useState("")
+  const [sortKey, setSortKey] = React.useState<SortKey>('created_at')
+  const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('desc')
   const STOCK_PAGE_SIZE = 50
   const [almacenes, setAlmacenes] = React.useState<any[]>([])
   const [historial, setHistorial] = React.useState<IngresoPendiente[]>([])
@@ -254,6 +258,16 @@ export default function InventarioPage() {
     cargar()
   }
 
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+    setStockPage(1)
+  }
+
   /* ─── Stock filtrado ───────────────────────────────── */
   const stockFiltrado = React.useMemo(() => {
     const q = stockBusqueda.trim().toLowerCase()
@@ -263,6 +277,24 @@ export default function InventarioPage() {
       (p.codigo_barras ?? "").toLowerCase().includes(q)
     )
   }, [stock, stockBusqueda])
+
+  /* ─── Stock ordenado ──────────────────────────────── */
+  const stockOrdenado = React.useMemo(() => {
+    return [...stockFiltrado].sort((a, b) => {
+      let va: any = a[sortKey]
+      let vb: any = b[sortKey]
+      if (sortKey === 'created_at') {
+        va = new Date(va).getTime()
+        vb = new Date(vb).getTime()
+      } else if (typeof va === 'string') {
+        va = va.toLowerCase()
+        vb = vb.toLowerCase()
+      }
+      if (va < vb) return sortDir === 'asc' ? -1 : 1
+      if (va > vb) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [stockFiltrado, sortKey, sortDir])
 
   /* ─── Leyenda rotación ─────────────────────────────── */
   const legendaItems = [
@@ -321,10 +353,10 @@ export default function InventarioPage() {
                     </span>
                   ))}
                 </div>
-                {!stockLoading && stockFiltrado.length > 0 && (
+                {!stockLoading && stockOrdenado.length > 0 && (
                   <span className="text-xs text-stone-400 shrink-0">
-                    {(stockPage - 1) * STOCK_PAGE_SIZE + 1}–{Math.min(stockPage * STOCK_PAGE_SIZE, stockFiltrado.length)} de {stockFiltrado.length}
-                    {stockBusqueda && stock.length !== stockFiltrado.length && (
+                    {(stockPage - 1) * STOCK_PAGE_SIZE + 1}–{Math.min(stockPage * STOCK_PAGE_SIZE, stockOrdenado.length)} de {stockOrdenado.length}
+                    {stockBusqueda && stock.length !== stockOrdenado.length && (
                       <span className="ml-1 text-stone-300">(de {stock.length} totales)</span>
                     )}
                   </span>
@@ -342,10 +374,28 @@ export default function InventarioPage() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-stone-50/60 sticky top-0 z-10">
-                        <TableHead className="text-stone-500">Producto</TableHead>
-                        <TableHead className="text-stone-500">Código</TableHead>
-                        <TableHead className="text-right text-stone-500">Precio sugerido</TableHead>
-                        <TableHead className="text-right text-stone-500">Stock actual</TableHead>
+                        {([
+                          { key: 'nombre',                 label: 'Producto',        align: 'left'   },
+                          { key: 'codigo_barras',          label: 'Código',          align: 'left'   },
+                          { key: 'precio_venta_sugerido',  label: 'Precio sugerido', align: 'right'  },
+                          { key: 'stock_total',            label: 'Stock actual',    align: 'right'  },
+                          { key: 'created_at',             label: 'Fecha ingreso',   align: 'left'   },
+                        ] as { key: SortKey; label: string; align: string }[]).map(({ key, label, align }) => (
+                          <TableHead
+                            key={key}
+                            className={`text-stone-500 cursor-pointer select-none hover:bg-stone-100 transition-colors ${align === 'right' ? 'text-right' : ''}`}
+                            onClick={() => toggleSort(key)}
+                          >
+                            <span className={`flex items-center gap-1 ${align === 'right' ? 'justify-end' : ''}`}>
+                              {label}
+                              {sortKey === key
+                                ? (sortDir === 'asc'
+                                    ? <ChevronUp className="h-3 w-3 text-amber-700" />
+                                    : <ChevronDown className="h-3 w-3 text-amber-700" />)
+                                : <ChevronsUpDown className="h-3 w-3 text-stone-300" />}
+                            </span>
+                          </TableHead>
+                        ))}
                         <TableHead className="text-center text-stone-500">
                           <span className="flex items-center justify-center gap-1">
                             <CalendarClock className="h-3.5 w-3.5" />
@@ -355,14 +405,14 @@ export default function InventarioPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {stockFiltrado.length === 0 ? (
+                      {stockOrdenado.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={5} className="text-center text-stone-400 py-10">
+                          <TableCell colSpan={6} className="text-center text-stone-400 py-10">
                             {stockBusqueda ? "Sin resultados para la búsqueda" : "Sin productos en inventario aún"}
                           </TableCell>
                         </TableRow>
                       ) : (
-                        stockFiltrado
+                        stockOrdenado
                           .slice((stockPage - 1) * STOCK_PAGE_SIZE, stockPage * STOCK_PAGE_SIZE)
                           .map((p) => (
                             <TableRow key={p.producto_id} className="hover:bg-stone-50/60">
@@ -370,6 +420,9 @@ export default function InventarioPage() {
                               <TableCell className="font-mono text-sm text-stone-500">{p.codigo_barras}</TableCell>
                               <TableCell className="text-right text-stone-600">{fmoney(p.precio_venta_sugerido)}</TableCell>
                               <TableCell className="text-right font-bold text-stone-800">{p.stock_total.toLocaleString()}</TableCell>
+                              <TableCell className="text-sm text-stone-500">
+                                {p.created_at ? format(new Date(p.created_at), 'dd/MM/yyyy') : '—'}
+                              </TableCell>
                               <TableCell className="text-center">
                                 <DiasSinVentaBadge dias={diasSinVenta[p.producto_id] ?? null} />
                               </TableCell>
@@ -379,7 +432,7 @@ export default function InventarioPage() {
                     </TableBody>
                   </Table>
                 </div>
-                {Math.ceil(stockFiltrado.length / STOCK_PAGE_SIZE) > 1 && (
+                {Math.ceil(stockOrdenado.length / STOCK_PAGE_SIZE) > 1 && (
                   <div className="flex items-center justify-center gap-3 px-5 py-3 border-t border-stone-100">
                     <button
                       onClick={() => setStockPage((p) => Math.max(1, p - 1))}
@@ -389,11 +442,11 @@ export default function InventarioPage() {
                       <ChevronLeft className="h-3.5 w-3.5" /> Anterior
                     </button>
                     <span className="text-xs text-stone-500">
-                      Página <span className="font-semibold text-stone-700">{stockPage}</span> de <span className="font-semibold text-stone-700">{Math.ceil(stockFiltrado.length / STOCK_PAGE_SIZE)}</span>
+                      Página <span className="font-semibold text-stone-700">{stockPage}</span> de <span className="font-semibold text-stone-700">{Math.ceil(stockOrdenado.length / STOCK_PAGE_SIZE)}</span>
                     </span>
                     <button
-                      onClick={() => setStockPage((p) => Math.min(Math.ceil(stockFiltrado.length / STOCK_PAGE_SIZE), p + 1))}
-                      disabled={stockPage === Math.ceil(stockFiltrado.length / STOCK_PAGE_SIZE)}
+                      onClick={() => setStockPage((p) => Math.min(Math.ceil(stockOrdenado.length / STOCK_PAGE_SIZE), p + 1))}
+                      disabled={stockPage === Math.ceil(stockOrdenado.length / STOCK_PAGE_SIZE)}
                       className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium border border-stone-200 text-stone-600 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                     >
                       Siguiente <ChevronRight className="h-3.5 w-3.5" />
