@@ -230,7 +230,9 @@ export async function buscarProductos(
       .order('nombre', { ascending: true })
 
     if (query.trim()) {
-      q = q.or(`nombre.ilike.%${query.trim()}%,codigo_barras.eq.${query.trim()}`)
+      // codigo_barras usa ilike SIN comodines: coincidencia exacta pero
+      // insensible a mayusculas/minusculas (respaldada por indice trigram).
+      q = q.or(`nombre.ilike.%${query.trim()}%,codigo_barras.ilike.${query.trim()}`)
     }
     if (opts?.categoriaId != null) q = q.eq('categoria_id', opts.categoriaId)
     if (opts?.marcaId != null) q = q.eq('marca_id', opts.marcaId)
