@@ -125,7 +125,7 @@ export async function getProductos(
 
     if (opts?.search?.trim()) {
       const s = opts.search.trim()
-      q = q.or(`nombre.ilike.%${s}%,codigo_barras.ilike.%${s}%`)
+      q = q.or(`nombre.ilike.%${s}%,codigo_barras.eq.${s}`)
     }
     if (opts?.marcaId != null) q = q.eq('marca_id', opts.marcaId)
     if (opts?.categoriaId != null) q = q.eq('categoria_id', opts.categoriaId)
@@ -230,7 +230,7 @@ export async function buscarProductos(
       .order('nombre', { ascending: true })
 
     if (query.trim()) {
-      q = q.or(`nombre.ilike.%${query.trim()}%,codigo_barras.ilike.%${query.trim()}%`)
+      q = q.or(`nombre.ilike.%${query.trim()}%,codigo_barras.eq.${query.trim()}`)
     }
     if (opts?.categoriaId != null) q = q.eq('categoria_id', opts.categoriaId)
     if (opts?.marcaId != null) q = q.eq('marca_id', opts.marcaId)
@@ -288,7 +288,7 @@ export async function getProductoPorCodigo(
     const { data, error } = await supabase
       .from('productos')
       .select('*, marcas(nombre), categorias(nombre), emprendimientos(nombre)')
-      .ilike('codigo_barras', codigo.trim())
+      .eq('codigo_barras', codigo.trim())
       .limit(1)
       .maybeSingle()
 
