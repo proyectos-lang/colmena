@@ -115,8 +115,8 @@ export default function InventarioPage() {
   const [stockLoading, setStockLoading] = React.useState(true)
   const [stockPage, setStockPage] = React.useState(1)
   const [stockBusqueda, setStockBusqueda] = React.useState("")
-  const [sortKey, setSortKey] = React.useState<SortKey>('created_at')
-  const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('desc')
+  const [sortKey, setSortKey] = React.useState<SortKey>('codigo_barras')
+  const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc')
   const STOCK_PAGE_SIZE = 50
   const [almacenes, setAlmacenes] = React.useState<any[]>([])
   const [historial, setHistorial] = React.useState<IngresoPendiente[]>([])
