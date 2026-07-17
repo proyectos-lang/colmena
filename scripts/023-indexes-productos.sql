@@ -5,21 +5,20 @@
 -- Los indices en FKs aceleran JOINs con marcas, categorias y emprendimientos.
 --
 -- INSTRUCCIONES: ejecutar en el SQL Editor de Supabase antes del proximo deploy.
--- Nota: CONCURRENTLY construye sin bloquear escrituras en produccion.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_productos_nombre_trgm
+CREATE INDEX IF NOT EXISTS idx_productos_nombre_trgm
   ON colmena.productos USING GIN (nombre gin_trgm_ops);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_productos_codigo_barras
+CREATE INDEX IF NOT EXISTS idx_productos_codigo_barras
   ON colmena.productos (codigo_barras);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_productos_marca_id
+CREATE INDEX IF NOT EXISTS idx_productos_marca_id
   ON colmena.productos (marca_id);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_productos_categoria_id
+CREATE INDEX IF NOT EXISTS idx_productos_categoria_id
   ON colmena.productos (categoria_id);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_productos_emprendimiento_id
+CREATE INDEX IF NOT EXISTS idx_productos_emprendimiento_id
   ON colmena.productos (emprendimiento_id);
