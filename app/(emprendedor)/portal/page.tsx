@@ -11,6 +11,14 @@ import {
   type IngresoPendiente,
 } from "@/lib/services/inventario-pendiente"
 import {
+  getProductosPendientesByEmprendimiento,
+  type ProductoPendiente,
+} from "@/lib/services/productos-pendientes"
+import {
+  getCambiosPrecioByEmprendimiento,
+  type CambioPrecioPendiente,
+} from "@/lib/services/cambios-precio"
+import {
   AreaChart,
   Area,
   XAxis,
@@ -111,6 +119,8 @@ export default function DashboardPage() {
   const [ventas, setVentas]       = React.useState<VentaEmprendedor[]>([])
   const [stock, setStock]         = React.useState<StockEmprendedor[]>([])
   const [pendientes, setPendientes] = React.useState<IngresoPendiente[]>([])
+  const [productosPend, setProductosPend] = React.useState<ProductoPendiente[]>([])
+  const [cambiosPend, setCambiosPend]     = React.useState<CambioPrecioPendiente[]>([])
   const [loading, setLoading]     = React.useState(true)
   const [chartMode, setChartMode] = React.useState<"dia" | "mes">("dia")
   const [ready, setReady]         = React.useState(false)
@@ -128,10 +138,14 @@ export default function DashboardPage() {
       getVentasByEmprendimiento(emprendedor.emprendimientoId, desde, hasta),
       getStockByEmprendimiento(emprendedor.emprendimientoId, emprendedor.razonSocialId),
       getIngresosPendientesByEmprendimiento(emprendedor.emprendimientoId),
-    ]).then(([v, s, p]) => {
+      getProductosPendientesByEmprendimiento(emprendedor.emprendimientoId),
+      getCambiosPrecioByEmprendimiento(emprendedor.emprendimientoId),
+    ]).then(([v, s, p, pp, cp]) => {
       setVentas(v)
       setStock(s)
       setPendientes(p.filter((x) => x.estado === "pendiente"))
+      setProductosPend(pp.filter((x) => x.estado === "pendiente"))
+      setCambiosPend(cp.filter((x) => x.estado === "pendiente"))
       setLoading(false)
       setTimeout(() => setReady(true), 80)
 
@@ -186,6 +200,45 @@ export default function DashboardPage() {
   const maxQty        = topProductos[0]?.cantidad || 1
   const stockOrdenado = [...stock].sort((a, b) => a.stock_total - b.stock_total).slice(0, 10)
 
+  /* ─── Pendientes unificados (productos + cargas + cambios de precio) ─── */
+  const pendientesUnificados = React.useMemo(() => {
+    const items = [
+      ...productosPend.map((p) => ({
+        key: `prod-${p.id}`,
+        tipo: "Producto nuevo",
+        color: "#7C9A92",
+        titulo: p.nombre,
+        codigo: p.codigo_barras,
+        detalle: fmoney(p.precio_venta_sugerido),
+        href: "/portal/mis-productos",
+        created_at: p.created_at,
+      })),
+      ...pendientes.map((p) => ({
+        key: `carga-${p.id}`,
+        tipo: "Carga inventario",
+        color: "#C07A5C",
+        titulo: p.producto_nombre ?? `Producto #${p.producto_id}`,
+        codigo: p.producto_codigo,
+        detalle: `+${p.cantidad}`,
+        href: "/portal/inventario",
+        created_at: p.created_at,
+      })),
+      ...cambiosPend.map((c) => ({
+        key: `precio-${c.id}`,
+        tipo: "Cambio de precio",
+        color: "#D4A574",
+        titulo: c.producto_nombre,
+        codigo: c.codigo_barras,
+        detalle: `${fmoney(c.precio_actual)} → ${fmoney(c.precio_nuevo)}`,
+        href: "/portal/cambios-precio",
+        created_at: c.created_at,
+      })),
+    ]
+    return items.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))
+  }, [productosPend, pendientes, cambiosPend])
+
+  const totalPendientes = pendientesUnificados.length
+
   /* ─── Modal ventas nuevas ──────────────────────────────────── */
   const facturasNuevas = React.useMemo(() => {
     const map: Record<string, { numero: string; fecha: string; items: VentaEmprendedor[]; total: number }> = {}
@@ -206,7 +259,7 @@ export default function DashboardPage() {
   const cV = useCountUp(Math.round(totalVentas),   1400, ready)
   const cU = useCountUp(totalUnidades,             1200, ready)
   const cS = useCountUp(totalStock,                1000, ready)
-  const cP = useCountUp(pendientes.length,          800, ready)
+  const cP = useCountUp(totalPendientes,            800, ready)
 
   /* ═══ Render ════════════════════════════════════════════════ */
   return (
@@ -425,22 +478,28 @@ export default function DashboardPage() {
             {/* Pendientes */}
             <div className="fade-up d4 relative overflow-hidden rounded-2xl bg-white p-5 shadow-sm border-l-4 border-stone-200/60"
               style={{
-                borderLeftColor: pendientes.length > 0 ? "#C07A5C" : "#e5e7eb",
+                borderLeftColor: totalPendientes > 0 ? "#C07A5C" : "#e5e7eb",
                 boxShadow: "0 1px 3px rgba(120,53,15,0.08)",
               }}>
               <div className="absolute -right-4 -top-4 h-20 w-20 rounded-full opacity-5" style={{ background: "#C07A5C" }} />
               <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Pendientes</p>
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: pendientes.length > 0 ? "rgba(192,122,92,0.12)" : "rgba(0,0,0,0.04)" }}>
-                  <Clock className="h-4 w-4" style={{ color: pendientes.length > 0 ? "#C07A5C" : "#9ca3af" }} />
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Por aprobar</p>
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: totalPendientes > 0 ? "rgba(192,122,92,0.12)" : "rgba(0,0,0,0.04)" }}>
+                  <Clock className="h-4 w-4" style={{ color: totalPendientes > 0 ? "#C07A5C" : "#9ca3af" }} />
                 </div>
               </div>
               <p className="text-2xl md:text-3xl font-extrabold tracking-tight"
-                style={{ color: pendientes.length > 0 ? "#C07A5C" : "#1c1917" }}>
+                style={{ color: totalPendientes > 0 ? "#C07A5C" : "#1c1917" }}>
                 {cP}
               </p>
               <p className="mt-1 text-xs text-stone-400">
-                {pendientes.length > 0 ? "cargas por aprobar" : "todo aprobado"}
+                {totalPendientes === 0
+                  ? "todo aprobado"
+                  : [
+                      productosPend.length > 0 ? `${productosPend.length} producto${productosPend.length === 1 ? "" : "s"}` : null,
+                      pendientes.length    > 0 ? `${pendientes.length} carga${pendientes.length === 1 ? "" : "s"}`         : null,
+                      cambiosPend.length   > 0 ? `${cambiosPend.length} precio${cambiosPend.length === 1 ? "" : "s"}`       : null,
+                    ].filter(Boolean).join(" · ")}
               </p>
             </div>
           </div>
@@ -624,18 +683,18 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <div className="flex items-center gap-2">
                 <div className="flex h-7 w-7 items-center justify-center rounded-xl"
-                  style={{ background: pendientes.length > 0 ? "rgba(192,122,92,0.12)" : "rgba(0,0,0,0.04)" }}>
-                  <AlertCircle className="h-4 w-4" style={{ color: pendientes.length > 0 ? "#C07A5C" : "#9ca3af" }} />
+                  style={{ background: totalPendientes > 0 ? "rgba(192,122,92,0.12)" : "rgba(0,0,0,0.04)" }}>
+                  <AlertCircle className="h-4 w-4" style={{ color: totalPendientes > 0 ? "#C07A5C" : "#9ca3af" }} />
                 </div>
                 <div>
-                  <h2 className="text-sm font-semibold text-stone-800">Cargas Pendientes</h2>
-                  <p className="text-xs text-stone-400">Esperando aprobación</p>
+                  <h2 className="text-sm font-semibold text-stone-800">Pendientes por Aprobar</h2>
+                  <p className="text-xs text-stone-400">Productos, cargas y cambios de precio</p>
                 </div>
               </div>
-              {pendientes.length > 0 && (
+              {totalPendientes > 0 && (
                 <span className="text-xs font-bold px-2 py-0.5 rounded-full"
                   style={{ background: "rgba(192,122,92,0.12)", color: "#C07A5C" }}>
-                  {pendientes.length}
+                  {totalPendientes}
                 </span>
               )}
             </div>
@@ -644,51 +703,49 @@ export default function DashboardPage() {
               <div className="px-5 pb-5 space-y-3">
                 {[1,2,3].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}
               </div>
-            ) : pendientes.length === 0 ? (
+            ) : totalPendientes === 0 ? (
               <div className="flex flex-col items-center justify-center py-14 px-5">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl mb-3"
                   style={{ background: "rgba(191,204,148,0.18)" }}>
                   <Package className="h-6 w-6" style={{ color: "#BFCC94" }} />
                 </div>
                 <p className="text-sm font-semibold text-stone-700">Todo al día</p>
-                <p className="text-xs text-stone-400 mt-0.5 text-center">No hay cargas esperando aprobación</p>
+                <p className="text-xs text-stone-400 mt-0.5 text-center">No hay solicitudes esperando aprobación</p>
               </div>
             ) : (
               <div className="px-5 pb-5 space-y-2">
-                {pendientes.slice(0, 6).map((p) => (
-                  <div key={p.id} className="rounded-xl p-3 border"
-                    style={{ background: "rgba(192,122,92,0.04)", borderColor: "rgba(192,122,92,0.18)" }}>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-stone-700 truncate">
-                          {p.producto_nombre ?? `Producto #${p.producto_id}`}
-                        </p>
-                        {p.producto_codigo && <p className="text-xs text-stone-400 font-mono">{p.producto_codigo}</p>}
+                {pendientesUnificados.slice(0, 6).map((p) => (
+                  <Link key={p.key} href={p.href} className="block">
+                    <div className="rounded-xl p-3 border transition-colors hover:bg-stone-50"
+                      style={{ background: "rgba(192,122,92,0.04)", borderColor: "rgba(192,122,92,0.18)" }}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <span className="inline-block mb-1 text-xs font-medium px-1.5 py-0.5 rounded"
+                            style={{ background: `${p.color}22`, color: p.color }}>
+                            {p.tipo}
+                          </span>
+                          <p className="text-xs font-semibold text-stone-700 truncate">{p.titulo}</p>
+                          {p.codigo && <p className="text-xs text-stone-400 font-mono">{p.codigo}</p>}
+                        </div>
+                        <span className="shrink-0 text-xs font-bold px-2 py-0.5 rounded-full"
+                          style={{ background: "rgba(192,122,92,0.12)", color: "#C07A5C" }}>
+                          {p.detalle}
+                        </span>
                       </div>
-                      <span className="shrink-0 text-xs font-bold px-2 py-0.5 rounded-full"
-                        style={{ background: "rgba(192,122,92,0.12)", color: "#C07A5C" }}>
-                        +{p.cantidad}
-                      </span>
+                      <div className="flex items-center justify-between mt-1.5">
+                        <p className="text-xs text-stone-400">
+                          {p.created_at ? format(parseISO(p.created_at), "d MMM yyyy", { locale: es }) : "—"}
+                        </p>
+                        <span className="flex items-center gap-1 text-xs" style={{ color: "#C07A5C" }}>
+                          <Clock className="h-3 w-3" /> Pendiente
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between mt-1.5">
-                      <p className="text-xs text-stone-400">
-                        {p.created_at ? format(parseISO(p.created_at), "d MMM yyyy", { locale: es }) : "—"}
-                      </p>
-                      <span className="flex items-center gap-1 text-xs" style={{ color: "#C07A5C" }}>
-                        <Clock className="h-3 w-3" /> Pendiente
-                      </span>
-                    </div>
-                  </div>
+                  </Link>
                 ))}
-                {pendientes.length > 6 && (
-                  <p className="text-xs text-center text-stone-400 pt-1">+{pendientes.length - 6} más</p>
+                {totalPendientes > 6 && (
+                  <p className="text-xs text-center text-stone-400 pt-1">+{totalPendientes - 6} más</p>
                 )}
-                <Link href="/portal/inventario" className="block mt-1">
-                  <button className="w-full rounded-xl py-2 text-xs font-medium transition-colors hover:opacity-80"
-                    style={{ color: "#92400e", background: "rgba(146,64,14,0.06)" }}>
-                    Ver todas las cargas →
-                  </button>
-                </Link>
               </div>
             )}
           </div>
