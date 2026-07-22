@@ -448,8 +448,11 @@ export default function OrdenCompraPage() {
     return prefix + value.toLocaleString("es-HN", { minimumFractionDigits: 2 })
   }
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString("es-HN", {
+  const formatDate = (date?: string | null) => {
+    if (!date) return "—"
+    const d = new Date(date)
+    if (isNaN(d.getTime())) return "—"
+    return d.toLocaleDateString("es-HN", {
       year: "numeric",
       month: "short",
       day: "numeric"
@@ -837,8 +840,8 @@ export default function OrdenCompraPage() {
                         <TableCell className="font-medium">{d.producto_nombre}</TableCell>
                         <TableCell className="text-muted-foreground font-mono text-sm">{d.producto_codigo}</TableCell>
                         <TableCell className="text-right">{d.cantidad}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(d.costo_unitario, selectedCompra.moneda)}</TableCell>
-                        <TableCell className="text-right font-medium">{formatCurrency(d.subtotal || 0, selectedCompra.moneda)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(d.costo_unitario_moneda_origen, selectedCompra.moneda)}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(d.cantidad * d.costo_unitario_moneda_origen, selectedCompra.moneda)}</TableCell>
                       </TableRow>
                     ))
                   )}
@@ -868,11 +871,11 @@ export default function OrdenCompraPage() {
                       </div>
                       <div>
                         <p className="text-muted-foreground">Costo</p>
-                        <p className="font-medium">{formatCurrency(d.costo_unitario, selectedCompra.moneda)}</p>
+                        <p className="font-medium">{formatCurrency(d.costo_unitario_moneda_origen, selectedCompra.moneda)}</p>
                       </div>
                       <div>
                         <p className="text-muted-foreground">Subtotal</p>
-                        <p className="font-medium text-primary">{formatCurrency(d.subtotal || 0, selectedCompra.moneda)}</p>
+                        <p className="font-medium text-primary">{formatCurrency(d.cantidad * d.costo_unitario_moneda_origen, selectedCompra.moneda)}</p>
                       </div>
                     </div>
                   </div>

@@ -20,13 +20,15 @@ export function createAdminClient(): SupabaseClient | null {
     return null
   }
 
+  // Ver nota en lib/supabase/client.ts: el generico de schema del SDK asume
+  // 'public'; el cliente en runtime es correcto, normalizamos el tipo.
   return createSupabaseClient(supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
     db: { schema: 'colmena' },
-  })
+  }) as unknown as SupabaseClient
 }
 
 export function isAdminClientConfigured(): boolean {

@@ -23,9 +23,13 @@ export function createClient(): SupabaseClient | null {
   }
 
   if (!browserClient) {
+    // El SDK infiere el schema en un generico que por defecto es 'public'.
+    // Como la app vive en 'colmena', el tipo concreto no encaja con el
+    // `SupabaseClient` por defecto que consumen los servicios. El cliente en
+    // runtime es correcto; solo normalizamos el tipo expuesto.
     browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
       db: { schema: 'colmena' },
-    })
+    }) as unknown as SupabaseClient
   }
 
   return browserClient

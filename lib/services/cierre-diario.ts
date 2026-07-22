@@ -44,6 +44,13 @@ export interface CierreResumen {
    * el reporte de ventas — provienen de caja chica, no del cobro.
    */
   ingresos_efectivo_manual: number
+  /**
+   * Egresos por gastos formales del dia, desglosados por medio de pago.
+   * Se calculan aparte de `total_egresos_caja` (que cubre toda salida de
+   * caja chica, este o no ligada a un gasto).
+   */
+  egresos_gastos_efectivo: number
+  egresos_gastos_banco: number
 }
 
 /**
@@ -407,7 +414,7 @@ export async function getCierreDiario(fechaISO: string): Promise<{
         const cuenta: { id: number; nombre: string } | null =
           (Array.isArray(r.cuentas_config) ? r.cuentas_config[0] : r.cuentas_config) || null
         const key = (r.cuenta_id ?? cuenta?.id) ?? null
-        const existing = map.get(key) ?? {
+        const existing: DesgloseBanco = map.get(key) ?? {
           cuenta_id: key,
           banco: cuenta?.nombre ?? "Sin cuenta",
           cantidad_movimientos: 0,

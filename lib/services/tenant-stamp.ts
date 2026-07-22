@@ -60,8 +60,23 @@ export async function getTenantStamp(
   }
 }
 
-/** true si ambos campos estan presentes y son utilizables en un insert */
-export function isValidStamp(stamp: TenantStamp): boolean {
+/**
+ * Sello ya validado: ambos campos garantizados no-nulos. Es lo que queda
+ * despues de pasar por `isValidStamp`.
+ */
+export interface ValidTenantStamp {
+  razon_social_id: number
+  usuario: string
+}
+
+/**
+ * true si ambos campos estan presentes y son utilizables en un insert.
+ *
+ * Es un *type predicate*: tras `if (!isValidStamp(stamp)) return ...`,
+ * TypeScript estrecha `stamp` a `ValidTenantStamp`, por lo que puede
+ * expandirse con `...stamp` en inserts que exigen campos no-nulos.
+ */
+export function isValidStamp(stamp: TenantStamp): stamp is ValidTenantStamp {
   return (
     stamp.razon_social_id != null &&
     typeof stamp.usuario === "string" &&

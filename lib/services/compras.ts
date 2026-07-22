@@ -19,6 +19,7 @@ export interface CompraEncabezado {
   subtotal?: number
   total?: number
   estado: 'Pendiente' | 'Recibida' | 'Cancelada'
+  created_at?: string
 }
 
 export interface CompraDetalle {

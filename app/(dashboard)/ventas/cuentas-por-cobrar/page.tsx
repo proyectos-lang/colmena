@@ -274,9 +274,7 @@ export default function CuentasPorCobrarPage() {
                       <p className="font-mono font-medium text-primary">{cuenta.numero_factura}</p>
                       <p className="text-xs text-muted-foreground">{cuenta.fecha_venta?.split('T')[0] || ''}</p>
                     </div>
-                    <Badge variant={cuenta.estado_pago === 'PAGADO' ? 'default' : cuenta.estado_pago === 'PARCIAL' ? 'secondary' : 'destructive'} className="text-xs">
-                      {cuenta.estado_pago}
-                    </Badge>
+                    {getEstadoBadge(cuenta.estado_pago)}
                   </div>
                   <p className="text-sm truncate mb-3">{cuenta.cliente_nombre}</p>
                   <div className="space-y-2 mb-3">
@@ -301,7 +299,7 @@ export default function CuentasPorCobrarPage() {
                     <Button size="sm" className="flex-1" onClick={() => openPagoDialog(cuenta)}>
                       <Plus className="h-4 w-4 mr-1" /> Pago
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => viewPagos(cuenta)}>
+                    <Button size="sm" variant="outline" onClick={() => openDetalleDialog(cuenta)} title="Ver detalle">
                       <Eye className="h-4 w-4" />
                     </Button>
                   </div>

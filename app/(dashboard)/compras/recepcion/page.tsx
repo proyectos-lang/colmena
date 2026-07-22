@@ -372,8 +372,11 @@ export default function RecepcionPage() {
     return prefix + value.toLocaleString("es-HN", { minimumFractionDigits: 2 })
   }
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString("es-HN", {
+  const formatDate = (date?: string | null) => {
+    if (!date) return "—"
+    const d = new Date(date)
+    if (isNaN(d.getTime())) return "—"
+    return d.toLocaleDateString("es-HN", {
       year: "numeric",
       month: "short",
       day: "numeric"

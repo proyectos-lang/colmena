@@ -18,8 +18,8 @@ export interface Producto {
   subcategoria_id?: number | null
   /** FK al emprendimiento propietario del producto. NULL = tienda propia. */
   emprendimiento_id?: number | null
-  marca_nombre?: string
-  categoria_nombre?: string
+  marca_nombre?: string | null
+  categoria_nombre?: string | null
   /** Nombre flat de la subcategoria (join virtual, no se persiste). */
   subcategoria_nombre?: string | null
   /** Nombre del emprendimiento (join virtual, no se persiste). */

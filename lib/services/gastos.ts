@@ -632,6 +632,9 @@ export async function getCuentasPorPagar(): Promise<{
     result.error &&
     /proveedor|relation .*proveedores.* does not exist/i.test(result.error.message)
   ) {
+    // El fallback omite el embed `proveedores`, por lo que su tipo de fila es
+    // mas estrecho que el de la consulta original. En runtime el codigo de
+    // abajo ya lee `proveedores` de forma opcional.
     result = await supabase
       .from('gastos')
       .select(`
@@ -640,7 +643,7 @@ export async function getCuentasPorPagar(): Promise<{
         conceptos_gastos:concepto_id (nombre, categoria_macro)
       `)
       .neq('estado_pago', 'Pagado')
-      .order('fecha_vencimiento', { ascending: true, nullsFirst: false })
+      .order('fecha_vencimiento', { ascending: true, nullsFirst: false }) as typeof result
   }
 
   if (result.error) {
