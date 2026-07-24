@@ -98,6 +98,12 @@ export default function AprobacionesPage() {
   const [masivoLocalizaciones, setMasivoLocalizaciones] = React.useState<any[]>([])
   const [aprobando, setAprobando] = React.useState(false)
 
+  // Modal rechazo masivo
+  const [rechazoMasivoOpen, setRechazoMasivoOpen] = React.useState(false)
+  const [rechazoMasivoTipo, setRechazoMasivoTipo] = React.useState<"producto" | "ingreso">("producto")
+  const [rechazoMasivoMotivo, setRechazoMasivoMotivo] = React.useState("")
+  const [rechazando, setRechazando] = React.useState(false)
+
   const cargar = React.useCallback(async () => {
     if (!razonSocialId) return
     setLoading(true)
@@ -332,6 +338,59 @@ export default function AprobacionesPage() {
     cargar()
   }
 
+  // ── Rechazo masivo ───────────────────────────────────────────────────────
+
+  const abrirRechazoMasivo = (tipo: "producto" | "ingreso") => {
+    setRechazoMasivoTipo(tipo)
+    setRechazoMasivoMotivo("")
+    setRechazoMasivoOpen(true)
+  }
+
+  const confirmarRechazoMasivo = async () => {
+    if (!rechazoMasivoMotivo.trim()) {
+      toast({ title: "Campo requerido", description: "El motivo de rechazo es obligatorio", variant: "destructive" })
+      return
+    }
+
+    const ids = rechazoMasivoTipo === "producto"
+      ? Array.from(selProductos)
+      : Array.from(selIngresos)
+
+    setRechazando(true)
+    let ok = 0
+    let errores = 0
+
+    try {
+      for (const id of ids) {
+        const res = rechazoMasivoTipo === "producto"
+          ? await rechazarProductoPendiente(id, rechazoMasivoMotivo)
+          : await rechazarIngresoPendiente(id, rechazoMasivoMotivo)
+        res.error ? errores++ : ok++
+      }
+    } catch (err: any) {
+      setRechazando(false)
+      toast({ title: "Error inesperado", description: err?.message ?? "Intente de nuevo", variant: "destructive" })
+      return
+    }
+
+    setRechazando(false)
+    setRechazoMasivoOpen(false)
+
+    if (errores === 0) {
+      toast({
+        title: "Rechazo completado",
+        description: `${ok} ${rechazoMasivoTipo === "producto" ? "productos rechazados" : "cargas rechazadas"} correctamente`,
+      })
+    } else {
+      toast({
+        title: `${ok} rechazados, ${errores} con error`,
+        description: "Revise los registros con error e intente nuevamente",
+        variant: "destructive",
+      })
+    }
+    cargar()
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -378,9 +437,9 @@ export default function AprobacionesPage() {
           <TabsContent value="productos" className="mt-4 space-y-3">
             {/* Barra de acciones masivas */}
             {selProductos.size > 0 && (
-              <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5">
-                <CheckSquare className="h-4 w-4 text-green-700 shrink-0" />
-                <span className="text-sm font-medium text-green-800">
+              <div className="flex items-center gap-3 rounded-lg border border-stone-200 bg-stone-50 px-4 py-2.5">
+                <CheckSquare className="h-4 w-4 text-stone-600 shrink-0" />
+                <span className="text-sm font-medium text-stone-800">
                   {selProductos.size} {selProductos.size === 1 ? "producto seleccionado" : "productos seleccionados"}
                 </span>
                 <div className="ml-auto flex items-center gap-2">
@@ -394,11 +453,20 @@ export default function AprobacionesPage() {
                   </Button>
                   <Button
                     size="sm"
+                    variant="destructive"
+                    className="h-8 text-xs"
+                    onClick={() => abrirRechazoMasivo("producto")}
+                  >
+                    <XCircle className="h-3.5 w-3.5 mr-1.5" />
+                    Rechazar {selProductos.size}
+                  </Button>
+                  <Button
+                    size="sm"
                     className="h-8 text-xs bg-green-600 hover:bg-green-700"
                     onClick={() => abrirMasivo("producto")}
                   >
                     <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
-                    Aprobar {selProductos.size} seleccionados
+                    Aprobar {selProductos.size}
                   </Button>
                 </div>
               </div>
@@ -437,7 +505,7 @@ export default function AprobacionesPage() {
                   pendientesProductos.map((p) => (
                     <TableRow
                       key={p.id}
-                      className={selProductos.has(p.id!) ? "bg-green-50/60" : undefined}
+                      className={selProductos.has(p.id!) ? "bg-stone-100/70" : undefined}
                     >
                       <TableCell>
                         {p.estado === "pendiente" && (
@@ -505,9 +573,9 @@ export default function AprobacionesPage() {
           <TabsContent value="inventario" className="mt-4 space-y-3">
             {/* Barra de acciones masivas */}
             {selIngresos.size > 0 && (
-              <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5">
-                <CheckSquare className="h-4 w-4 text-green-700 shrink-0" />
-                <span className="text-sm font-medium text-green-800">
+              <div className="flex items-center gap-3 rounded-lg border border-stone-200 bg-stone-50 px-4 py-2.5">
+                <CheckSquare className="h-4 w-4 text-stone-600 shrink-0" />
+                <span className="text-sm font-medium text-stone-800">
                   {selIngresos.size} {selIngresos.size === 1 ? "carga seleccionada" : "cargas seleccionadas"}
                 </span>
                 <div className="ml-auto flex items-center gap-2">
@@ -521,11 +589,20 @@ export default function AprobacionesPage() {
                   </Button>
                   <Button
                     size="sm"
+                    variant="destructive"
+                    className="h-8 text-xs"
+                    onClick={() => abrirRechazoMasivo("ingreso")}
+                  >
+                    <XCircle className="h-3.5 w-3.5 mr-1.5" />
+                    Rechazar {selIngresos.size}
+                  </Button>
+                  <Button
+                    size="sm"
                     className="h-8 text-xs bg-green-600 hover:bg-green-700"
                     onClick={() => abrirMasivo("ingreso")}
                   >
                     <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
-                    Aprobar {selIngresos.size} seleccionadas
+                    Aprobar {selIngresos.size}
                   </Button>
                 </div>
               </div>
@@ -563,7 +640,7 @@ export default function AprobacionesPage() {
                   pendientesIngresos.map((i) => (
                     <TableRow
                       key={i.id}
-                      className={selIngresos.has(i.id!) ? "bg-green-50/60" : undefined}
+                      className={selIngresos.has(i.id!) ? "bg-stone-100/70" : undefined}
                     >
                       <TableCell>
                         {i.estado === "pendiente" && (
@@ -835,6 +912,55 @@ export default function AprobacionesPage() {
                 <>
                   <CheckCircle className="h-4 w-4 mr-2" />
                   Confirmar aprobación
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Modal rechazo masivo ── */}
+      <Dialog open={rechazoMasivoOpen} onOpenChange={(v) => { if (!rechazando) setRechazoMasivoOpen(v) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Rechazar {rechazoMasivoTipo === "producto"
+                ? `${selProductos.size} ${selProductos.size === 1 ? "producto" : "productos"}`
+                : `${selIngresos.size} ${selIngresos.size === 1 ? "carga de inventario" : "cargas de inventario"}`}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              El mismo motivo se aplicará a{" "}
+              {rechazoMasivoTipo === "producto"
+                ? `los ${selProductos.size} productos seleccionados`
+                : `las ${selIngresos.size} cargas seleccionadas`}
+              . El emprendedor podrá ver este motivo en su portal.
+            </p>
+            <div className="space-y-1">
+              <Label>Motivo del rechazo <span className="text-red-500">*</span></Label>
+              <Input
+                value={rechazoMasivoMotivo}
+                onChange={(e) => setRechazoMasivoMotivo(e.target.value)}
+                placeholder="Ej: Código de barras duplicado"
+                disabled={rechazando}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRechazoMasivoOpen(false)} disabled={rechazando}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={confirmarRechazoMasivo} disabled={rechazando}>
+              {rechazando ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Rechazando...
+                </>
+              ) : (
+                <>
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Confirmar rechazo
                 </>
               )}
             </Button>
