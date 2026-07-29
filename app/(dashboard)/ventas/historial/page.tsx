@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { CreditCard, Download, FileSpreadsheet, Banknote, Wallet, Shuffle, Trash2, Loader2 } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { CreditCard, Download, FileSpreadsheet, Banknote, Wallet, Shuffle, Trash2, Loader2, Pencil } from "lucide-react"
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
 import * as XLSX from "xlsx"
@@ -70,7 +71,11 @@ import { getMetodosPagoPorVenta } from "@/lib/services/ventas-analytics"
 export default function HistorialVentasPage() {
   const { toast } = useToast()
   const { user } = useAuth()
+  const router = useRouter()
   const razonSocialId = user?.razon_social_id
+
+  // Navega a la pantalla de venta en modo edicion.
+  const irAEditar = (ventaId: number) => router.push(`/ventas/nueva?editar=${ventaId}`)
 
   // --- Shared state ---
   const [loading, setLoading] = React.useState(true)
@@ -822,6 +827,12 @@ export default function HistorialVentasPage() {
                           <Download className="h-4 w-4" />
                         </Button>
                         <Button variant="ghost" size="icon"
+                          className="h-8 w-8 text-amber-700 hover:text-amber-800 hover:bg-amber-50"
+                          onClick={() => irAEditar(linea.venta_id)}
+                          title="Editar factura">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon"
                           className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
                           onClick={() => setLineaAEliminar(linea)}
                           title="Eliminar esta línea">
@@ -948,6 +959,12 @@ export default function HistorialVentasPage() {
                                   onClick={() => { const v = ventas.find(x => x.id === linea.venta_id); if (v) generatePdf(v) }}
                                   title="Descargar PDF de la factura">
                                   <Download className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon"
+                                  className="text-amber-700 hover:text-amber-800 hover:bg-amber-50"
+                                  onClick={() => irAEditar(linea.venta_id)}
+                                  title="Editar factura">
+                                  <Pencil className="h-4 w-4" />
                                 </Button>
                                 <Button variant="ghost" size="icon"
                                   className="text-red-600 hover:text-red-700 hover:bg-red-50"
@@ -1140,20 +1157,21 @@ export default function HistorialVentasPage() {
                     <TableHead className="font-semibold text-stone-700 text-right whitespace-nowrap">Costo Unit.</TableHead>
                     <TableHead className="font-semibold text-stone-700 text-right whitespace-nowrap">Utilidad Bruta</TableHead>
                     <TableHead className="font-semibold text-stone-700 whitespace-nowrap">Bodega</TableHead>
+                    <TableHead className="font-semibold text-stone-700 text-right whitespace-nowrap">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loadingAnalitico ? (
                     [...Array(5)].map((_, i) => (
                       <TableRow key={i}>
-                        {[...Array(10)].map((_, j) => (
+                        {[...Array(11)].map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
                     ))
                   ) : detalleFiltrado.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center text-muted-foreground py-10">
+                      <TableCell colSpan={11} className="text-center text-muted-foreground py-10">
                         {analiticoLoaded ? "No hay registros para los filtros aplicados" : "Cargando datos..."}
                       </TableCell>
                     </TableRow>
@@ -1173,6 +1191,15 @@ export default function HistorialVentasPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground">{d.almacen_nombre}</TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="icon"
+                          className="text-amber-700 hover:text-amber-800 hover:bg-amber-50"
+                          onClick={() => irAEditar(d.venta_id)}
+                          disabled={!d.venta_id}
+                          title="Editar factura">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1267,6 +1294,13 @@ export default function HistorialVentasPage() {
                       Registrar Pago
                     </Button>
                   )}
+                </div>
+                <div className="flex justify-end pt-2">
+                  <Button variant="outline"
+                    onClick={() => { setShowDetalleDialog(false); if (selectedVenta?.id) irAEditar(selectedVenta.id) }}>
+                    <Pencil className="h-4 w-4 mr-2" />
+                    Editar factura
+                  </Button>
                 </div>
               </div>
             </div>

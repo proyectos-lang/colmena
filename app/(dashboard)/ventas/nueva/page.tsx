@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Plus, Minus, Trash2, Printer, FileText, ShoppingCart, User, Receipt, Warehouse, MapPin, AlertTriangle, UserPlus, Wallet, X, Landmark, Store, Save, Clock } from "lucide-react"
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
@@ -39,9 +39,13 @@ import { getClientes, getAlmacenes, getLocalizaciones, getMarcas, getCategorias,
 import { getEmprendimientos, type Emprendimiento } from "@/lib/services/emprendimientos"
 import { ProductCatalog } from "./product-catalog"
 import { getStockMultipleProducts } from "@/lib/services/inventario"
-import { 
-  getNextCorrelativo, 
-  crearVenta, 
+import {
+  getNextCorrelativo,
+  crearVenta,
+  editarVenta,
+  getVentaById,
+  getDetallesVenta,
+  getPagosDetalleVenta,
   getRazonSocialForPdf,
   type VentaEncabezado,
   type VentaDetalle,
@@ -272,11 +276,21 @@ function printReciboTermico(
   iframe.src = blobUrl
 }
 
-export default function NuevaVentaPage() {
+function NuevaVentaInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { toast } = useToast()
   const { ready, razonSocialId } = useTenant()
-  
+
+  // Modo edicion: /ventas/nueva?editar=<id>. Reusa esta misma pantalla para
+  // editar una venta existente (reversar y recrear, conservando la factura).
+  const editarId = searchParams.get("editar")
+  const isEdit = !!editarId
+  // Cantidades originales por producto de la venta editada. Sirven para
+  // mostrar el stock disponible como (stock_actual + cantidad_original), ya
+  // que la venta original sigue restada del stock hasta que se guarda.
+  const cantidadesOriginalesRef = React.useRef<Record<number, number>>({})
+
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
   const [clientes, setClientes] = React.useState<Cliente[]>([])
@@ -385,11 +399,13 @@ export default function NuevaVentaPage() {
       setAlmacenes(almacenesRes.data || [])
       setEmprendimientos(empsData.filter((e) => e.activo !== false))
       setLocalizaciones(localizacionesRes.data || [])
-      setNumeroFactura(correlativo)
+      // En modo edicion conservamos el numero de factura original (no correlativo nuevo).
+      if (!isEdit) setNumeroFactura(correlativo)
       setCuentas((cuentasRes.data || []).filter((c) => c.activo ?? true))
 
-      // Auto-seleccionar almacén/localización si solo hay uno
-      if (almacenesRes.data && almacenesRes.data.length === 1) {
+      // Auto-seleccionar almacén/localización si solo hay uno (solo en creacion;
+      // en edicion los define loadVentaParaEditar segun la venta).
+      if (!isEdit && almacenesRes.data && almacenesRes.data.length === 1) {
         const defaultAlmacenId = String(almacenesRes.data[0].id)
         setAlmacenId(defaultAlmacenId)
         const filtradas = (localizacionesRes.data || []).filter(l => l.almacen_id === almacenesRes.data[0].id)
@@ -399,6 +415,11 @@ export default function NuevaVentaPage() {
           // El stock del catálogo lo cargará onPageLoad cuando el catálogo
           // termine de renderizar su primera página.
         }
+      }
+
+      // Modo edicion: precargar la venta despues de tener catalogos/localizaciones.
+      if (isEdit && editarId) {
+        await loadVentaParaEditar(Number(editarId), localizacionesRes.data || [])
       }
     } catch (err: any) {
       console.log("[v0][NuevaVenta] excepcion cargando datos:", err)
@@ -464,18 +485,96 @@ export default function NuevaVentaPage() {
 
   async function fetchStockForLineas(locId: number) {
     if (lineas.length === 0) return
-    
+
     setLoadingStock(true)
     const productoIds = lineas.map(l => l.producto_id)
     const { data: stockMap } = await getStockMultipleProducts(productoIds, locId)
     setStockPorLocalizacion(stockMap)
-    
-    // Update lineas with stock disponible
+
+    // Update lineas with stock disponible. En modo edicion sumamos la cantidad
+    // original de esta venta (aun restada del stock) para no marcar falso
+    // "stock insuficiente" al reeditar las mismas lineas.
     setLineas(prev => prev.map(l => ({
       ...l,
-      stock_disponible: stockMap[l.producto_id] || 0
+      stock_disponible: (stockMap[l.producto_id] || 0) + (cantidadesOriginalesRef.current[l.producto_id] || 0)
     })))
     setLoadingStock(false)
+  }
+
+  /**
+   * Precarga una venta existente en el formulario para editarla. Reconstruye
+   * los precios a BRUTO (el stock guardado es NETO si hubo comision), conserva
+   * el numero de factura y precarga el desglose de pagos.
+   */
+  async function loadVentaParaEditar(id: number, locsDisponibles: Localizacion[]) {
+    try {
+      const [encRes, detRes, pagosRes] = await Promise.all([
+        getVentaById(id),
+        getDetallesVenta(id),
+        getPagosDetalleVenta(id),
+      ])
+      const enc = encRes.data
+      if (!enc) {
+        toast({ title: "No se encontro la venta", description: "No se pudo cargar la factura a editar", variant: "destructive" })
+        return
+      }
+
+      setNumeroFactura(enc.numero_factura)
+      setClienteId(enc.cliente_id ? String(enc.cliente_id) : "")
+      if (enc.fecha_venta) setFecha(String(enc.fecha_venta).split("T")[0])
+
+      // Almacen + localizacion (localizacion se autoselecciona si el almacen
+      // tiene una sola; si tiene varias, el usuario debe elegirla).
+      let locIdSel = ""
+      const almId = enc.almacen_id ? String(enc.almacen_id) : ""
+      if (almId) {
+        setAlmacenId(almId)
+        const filtradas = locsDisponibles.filter(l => l.almacen_id === Number(almId))
+        setLocalizacionesFiltradas(filtradas)
+        if (filtradas.length === 1) {
+          locIdSel = String(filtradas[0].id!)
+          setLocalizacionId(locIdSel)
+        }
+      }
+
+      // Reconstruir lineas a BRUTO
+      const c = Number(enc.comisionbanc ?? 0)
+      const origQty: Record<number, number> = {}
+      const nuevasLineas: LineaVenta[] = (detRes.data || []).map((d) => {
+        const precioBruto =
+          c > 0 && c < 100 ? +(d.precio_unitario / (1 - c / 100)).toFixed(4) : d.precio_unitario
+        const descPct = d.descuentodetalle ?? 0
+        origQty[d.producto_id] = (origQty[d.producto_id] || 0) + d.cantidad
+        return {
+          producto_id: d.producto_id,
+          producto_nombre: d.producto_nombre || "",
+          producto_codigo: d.producto_codigo || "",
+          cantidad: d.cantidad,
+          precio_unitario: precioBruto,
+          costo_promedio: d.costo_promedio_momento || 0,
+          subtotal: +(d.cantidad * precioBruto * (1 - descPct / 100)).toFixed(2),
+          utilidad_linea: calculateUtilidadLinea(d.cantidad, precioBruto, d.costo_promedio_momento || 0, descPct),
+          stock_disponible: 0,
+          descuento: descPct,
+        }
+      })
+      cantidadesOriginalesRef.current = origQty
+
+      // Stock disponible = stock_actual + cantidad original (la venta sigue restada).
+      if (locIdSel) {
+        const { data: stockMap } = await getStockMultipleProducts(nuevasLineas.map(l => l.producto_id), Number(locIdSel))
+        setStockPorLocalizacion(stockMap || {})
+        nuevasLineas.forEach(l => {
+          l.stock_disponible = (stockMap[l.producto_id] || 0) + (origQty[l.producto_id] || 0)
+        })
+      }
+      setLineas(nuevasLineas)
+
+      // Desglose de pagos
+      setPagosDetalle((pagosRes.data || []).map((p, i) => ({ ...p, _id: `edit-${i}` })))
+    } catch (err: any) {
+      toast({ title: "Error al cargar la venta", description: err?.message || "Error de conexion", variant: "destructive" })
+    }
   }
 
   function calculateUtilidadLinea(cantidad: number, precio: number, costo: number, descPct = 0): number {
@@ -878,6 +977,28 @@ export default function NuevaVentaPage() {
           remaining = +(remaining - cap).toFixed(2)
           return { ...p, monto_bruto: cap }
         })
+      }
+
+      // ── Modo edicion: reversar y recrear conservando la factura ──────────
+      if (isEdit && editarId) {
+        const { error: editErr, warning } = await editarVenta(Number(editarId), {
+          encabezado,
+          detalles,
+          almacen_id: parseInt(almacenId),
+          localizacion_id: parseInt(localizacionId),
+          pagos_detalle: pagosParaDB,
+        })
+        if (editErr) {
+          toast({ title: "Error al editar", description: editErr, variant: "destructive" })
+          return
+        }
+        if (warning) {
+          toast({ title: "Factura actualizada con advertencia", description: warning })
+        } else {
+          toast({ title: "Venta actualizada", description: `Factura ${numeroFactura} actualizada correctamente` })
+        }
+        router.push("/ventas/historial")
+        return
       }
 
       const { data, error } = await crearVenta({
@@ -1293,6 +1414,11 @@ export default function NuevaVentaPage() {
                 <Receipt className="h-4 w-4 md:h-5 md:w-5" />
                 <span className="font-mono font-bold text-base md:text-lg">{numeroFactura}</span>
               </div>
+              {isEdit && (
+                <Badge variant="secondary" className="bg-amber-100 text-amber-800 border-amber-300">
+                  Editando factura
+                </Badge>
+              )}
               <Input 
                 type="date" 
                 value={fecha} 
@@ -1423,17 +1549,19 @@ export default function NuevaVentaPage() {
                 </span>
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 px-2 text-xs gap-1"
-              onClick={guardarCarrito}
-              disabled={lineas.length === 0}
-              title="Guardar carrito y empezar venta nueva"
-            >
-              <Save className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Guardar</span>
-            </Button>
+            {!isEdit && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs gap-1"
+                onClick={guardarCarrito}
+                disabled={lineas.length === 0}
+                title="Guardar carrito y empezar venta nueva"
+              >
+                <Save className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Guardar</span>
+              </Button>
+            )}
           </div>
         </div>
         <div className="overflow-auto lg:max-h-[38vh] border-b shrink-0">
@@ -1907,7 +2035,7 @@ export default function NuevaVentaPage() {
                       ) : (
                         <>
                           <FileText className="h-4 w-4 md:h-5 md:w-5" />
-                          Generar Factura
+                          {isEdit ? "Guardar cambios" : "Generar Factura"}
                         </>
                       )}
                     </Button>
@@ -2128,5 +2256,14 @@ export default function NuevaVentaPage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+// useSearchParams() requiere un limite de Suspense en el App Router de Next.js.
+export default function NuevaVentaPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <NuevaVentaInner />
+    </React.Suspense>
   )
 }
