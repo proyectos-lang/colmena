@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import * as XLSX from "xlsx"
 import { useEmprendedorAuth } from "@/lib/contexts/emprendedor-auth-context"
 import {
   submitIngresoPendiente,
@@ -296,6 +297,26 @@ export default function InventarioPage() {
     })
   }, [stockFiltrado, sortKey, sortDir])
 
+  /* ─── Exportar inventario a Excel (respeta filtro y orden actual) ─── */
+  const exportarExcel = () => {
+    const rows = stockOrdenado.map((p) => {
+      const dias = diasSinVenta[p.producto_id]
+      return {
+        "Código": p.codigo_barras || "",
+        "Producto": p.nombre,
+        "Precio sugerido": p.precio_venta_sugerido ?? 0,
+        "Stock actual": p.stock_total ?? 0,
+        "Días sin venta": dias === null || dias === undefined ? "Sin ventas" : dias,
+        "Fecha ingreso": p.created_at ? format(new Date(p.created_at), "dd/MM/yyyy") : "",
+      }
+    })
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Inventario")
+    const slug = (emprendedor?.emprendimientoNombre || "inventario").replace(/[^\w]+/g, "_")
+    XLSX.writeFile(wb, `inventario_${slug}_${format(new Date(), "yyyy-MM-dd")}.xlsx`)
+  }
+
   /* ─── Leyenda rotación ─────────────────────────────── */
   const legendaItems = [
     { label: "Hoy / ≤7d",  bg: "#dcfce7", text: "#15803d" },
@@ -353,14 +374,25 @@ export default function InventarioPage() {
                     </span>
                   ))}
                 </div>
-                {!stockLoading && stockOrdenado.length > 0 && (
-                  <span className="text-xs text-stone-400 shrink-0">
-                    {(stockPage - 1) * STOCK_PAGE_SIZE + 1}–{Math.min(stockPage * STOCK_PAGE_SIZE, stockOrdenado.length)} de {stockOrdenado.length}
-                    {stockBusqueda && stock.length !== stockOrdenado.length && (
-                      <span className="ml-1 text-stone-300">(de {stock.length} totales)</span>
-                    )}
-                  </span>
-                )}
+                <div className="flex items-center gap-3 shrink-0">
+                  {!stockLoading && stockOrdenado.length > 0 && (
+                    <span className="text-xs text-stone-400">
+                      {(stockPage - 1) * STOCK_PAGE_SIZE + 1}–{Math.min(stockPage * STOCK_PAGE_SIZE, stockOrdenado.length)} de {stockOrdenado.length}
+                      {stockBusqueda && stock.length !== stockOrdenado.length && (
+                        <span className="ml-1 text-stone-300">(de {stock.length} totales)</span>
+                      )}
+                    </span>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={exportarExcel}
+                    disabled={stockLoading || stockOrdenado.length === 0}
+                    className="h-7 text-xs gap-1 border-stone-200"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Exportar Excel
+                  </Button>
+                </div>
               </div>
             </div>
 
