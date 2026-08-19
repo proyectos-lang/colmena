@@ -23,6 +23,7 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import {
   getProductoPorCodigo,
+  buscarProductos,
   getAlmacenes, getLocalizaciones,
   type Producto, type Almacen, type Localizacion,
 } from "@/lib/services/catalogos"
@@ -46,11 +47,12 @@ export default function MovimientosManualesPage() {
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
 
-  // ── Búsqueda por código ─────────────────────────────────────
+  // ── Búsqueda por nombre o código ────────────────────────────
   const [codigoBusqueda, setCodigoBusqueda] = React.useState("")
   const [buscandoProducto, setBuscandoProducto] = React.useState(false)
   const [productoEncontrado, setProductoEncontrado] = React.useState<Producto | null>(null)
   const [errorBusqueda, setErrorBusqueda] = React.useState<string | null>(null)
+  const [resultadosBusqueda, setResultadosBusqueda] = React.useState<Producto[]>([])
 
   // ── Individual ──────────────────────────────────────────────
   const [tipoInd, setTipoInd] = React.useState<TipoMovimiento>("ingreso")
@@ -94,17 +96,40 @@ export default function MovimientosManualesPage() {
   }
 
   async function buscarProducto() {
-    const codigo = codigoBusqueda.trim()
-    if (!codigo) return
+    const q = codigoBusqueda.trim()
+    if (!q) return
     setBuscandoProducto(true)
     setProductoEncontrado(null)
     setErrorBusqueda(null)
-    const { data, error } = await getProductoPorCodigo(codigo)
+    setResultadosBusqueda([])
+    // Busca por nombre (parcial) O por código, insensible a mayúsculas/minúsculas.
+    const { data } = await buscarProductos(q, { limit: 50 })
+    if (!data || data.length === 0) {
+      setBuscandoProducto(false)
+      setErrorBusqueda("Producto no encontrado")
+      return
+    }
+    if (data.length === 1) {
+      await seleccionarProducto(data[0])
+      return
+    }
     setBuscandoProducto(false)
-    if (error || !data) {
-      setErrorBusqueda(error ?? "Producto no encontrado")
+    setResultadosBusqueda(data)
+  }
+
+  async function seleccionarProducto(p: Producto) {
+    setResultadosBusqueda([])
+    setErrorBusqueda(null)
+    setCodigoBusqueda(p.codigo_barras || p.nombre)
+    // Si tiene código, recargamos con el stock real por localización (mismo
+    // comportamiento que la búsqueda por código). Si no, usamos el item tal cual.
+    if (p.codigo_barras) {
+      setBuscandoProducto(true)
+      const { data } = await getProductoPorCodigo(p.codigo_barras)
+      setBuscandoProducto(false)
+      setProductoEncontrado(data ?? p)
     } else {
-      setProductoEncontrado(data)
+      setProductoEncontrado(p)
     }
   }
 
@@ -306,25 +331,24 @@ export default function MovimientosManualesPage() {
                     <Package className="h-4 w-4 md:h-5 md:w-5 text-amber-600" />
                     Buscar Producto
                   </CardTitle>
-                  <CardDescription>Escriba el código de barras y presione la lupa o Enter</CardDescription>
+                  <CardDescription>Busca por nombre o código de barras y presiona la lupa o Enter</CardDescription>
                 </CardHeader>
                 <CardContent className="p-4 md:p-6 pt-0 space-y-4">
-                  {/* Buscador por código */}
+                  {/* Buscador por nombre o código */}
                   <div className="space-y-2">
-                    <Label className="text-sm">Código de barras</Label>
+                    <Label className="text-sm">Nombre o código</Label>
                     <div className="flex gap-2">
                       <Input
-                        placeholder="Escribe el código y presiona Enter o la lupa..."
+                        placeholder="Escribe nombre o código y presiona Enter o la lupa..."
                         value={codigoBusqueda}
                         onChange={(e) => {
                           setCodigoBusqueda(e.target.value)
-                          if (productoEncontrado) {
-                            setProductoEncontrado(null)
-                            setErrorBusqueda(null)
-                          }
+                          if (productoEncontrado) setProductoEncontrado(null)
+                          if (resultadosBusqueda.length > 0) setResultadosBusqueda([])
+                          if (errorBusqueda) setErrorBusqueda(null)
                         }}
                         onKeyDown={handleCodigoKeyDown}
-                        className="bg-background font-mono"
+                        className="bg-background"
                         autoComplete="off"
                       />
                       <Button
@@ -348,9 +372,34 @@ export default function MovimientosManualesPage() {
                     <Alert className="border-red-200 bg-red-50 py-3">
                       <AlertTriangle className="h-4 w-4 text-red-600" />
                       <AlertDescription className="text-red-700 text-sm">
-                        {errorBusqueda} — verifique el código e intente nuevamente.
+                        {errorBusqueda} — verifique el nombre o código e intente nuevamente.
                       </AlertDescription>
                     </Alert>
+                  )}
+
+                  {/* Lista de resultados (cuando hay varios) */}
+                  {resultadosBusqueda.length > 0 && !productoEncontrado && (
+                    <div className="border rounded-lg divide-y max-h-64 overflow-auto bg-background">
+                      <p className="px-3 py-1.5 text-xs text-muted-foreground bg-muted/40 sticky top-0">
+                        {resultadosBusqueda.length} resultados — elige un producto
+                      </p>
+                      {resultadosBusqueda.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => seleccionarProducto(p)}
+                          className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-amber-50 transition-colors"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{p.nombre}</p>
+                            <p className="text-xs font-mono text-muted-foreground">{p.codigo_barras || "sin código"}</p>
+                          </div>
+                          <span className="text-xs font-semibold text-primary shrink-0">
+                            L {(p.precio_venta_sugerido ?? 0).toFixed(2)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   )}
 
                   {/* Datos del producto encontrado */}

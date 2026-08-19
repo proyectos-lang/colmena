@@ -510,8 +510,8 @@ function ProductGrid({ productos, idsEnVenta, cola, onAdd, disabled, getStock, s
               enCola && "border-primary bg-primary/5"
             )}
           >
-            <div className="relative h-14 w-full shrink-0">
-              <ProductImage url={p.foto_url} nombre={p.nombre} className="h-full w-full" />
+            <div className="relative aspect-square w-full shrink-0 bg-muted/30">
+              <ProductImage url={p.foto_url} nombre={p.nombre} className="h-full w-full object-contain" />
               {((enVenta && !searchMode) || enCola) && (
                 <span className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow">
                   <Check className="h-3 w-3" />
@@ -520,6 +520,9 @@ function ProductGrid({ productos, idsEnVenta, cola, onAdd, disabled, getStock, s
             </div>
             <div className="flex flex-col gap-0.5 p-1.5 min-w-0">
               <p className="text-[11px] font-medium leading-tight line-clamp-2 break-words">{p.nombre}</p>
+              {p.codigo_barras && (
+                <p className="text-[10px] font-mono text-muted-foreground leading-tight truncate">{p.codigo_barras}</p>
+              )}
               <div className="flex flex-wrap items-center justify-between gap-x-1 gap-y-0.5 mt-0.5">
                 <span className="text-[11px] font-bold text-primary whitespace-nowrap">
                   L {(p.precio_venta_sugerido ?? 0).toFixed(2)}
