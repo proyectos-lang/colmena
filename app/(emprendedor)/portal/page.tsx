@@ -33,7 +33,6 @@ import {
   endOfMonth,
   subMonths,
   eachDayOfInterval,
-  subDays,
   parseISO,
 } from "date-fns"
 import { es } from "date-fns/locale"
@@ -130,7 +129,8 @@ export default function DashboardPage() {
   React.useEffect(() => {
     if (!emprendedor) return
     const hoy   = new Date()
-    const desde = format(subDays(hoy, 29), "yyyy-MM-dd") + "T00:00:00"
+    // Mes calendario actual (1 -> hoy), consistente con la vista de indicadores.
+    const desde = format(startOfMonth(hoy), "yyyy-MM-dd") + "T00:00:00"
     const hasta = format(hoy, "yyyy-MM-dd") + "T23:59:59"
     const storageKey = `emprendedor_last_visit_${emprendedor.emprendimientoId}`
 
@@ -169,7 +169,7 @@ export default function DashboardPage() {
 
   const chartDataDia = React.useMemo(() => {
     const hoy  = new Date()
-    const days = eachDayOfInterval({ start: subDays(hoy, 29), end: hoy })
+    const days = eachDayOfInterval({ start: startOfMonth(hoy), end: hoy })
     const map: Record<string, number> = {}
     ventas.forEach((v) => {
       const k = format(parseISO(v.fecha_venta), "dd/MM")
@@ -396,7 +396,7 @@ export default function DashboardPage() {
                 {emprendedor?.emprendimientoNombre ?? "Portal Emprendedor"}
               </p>
               <p className="mt-0.5 text-sm" style={{ color: "#a8a29e" }}>
-                Resumen de tu negocio — últimos 30 días
+                Resumen de tu negocio — este mes
               </p>
             </div>
             <div className="flex gap-3">
@@ -432,7 +432,7 @@ export default function DashboardPage() {
               style={{ borderLeftColor: "#D4A574", boxShadow: "0 1px 3px rgba(120,53,15,0.08)" }}>
               <div className="absolute -right-4 -top-4 h-20 w-20 rounded-full opacity-5" style={{ background: "#D4A574" }} />
               <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Ventas 30d</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-stone-400">Ventas del mes</p>
                 <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: "rgba(212,165,116,0.12)" }}>
                   <TrendingUp className="h-4 w-4" style={{ color: "#D4A574" }} />
                 </div>
@@ -515,7 +515,7 @@ export default function DashboardPage() {
               <div>
                 <h2 className="font-semibold text-stone-800">Evolución de Ventas</h2>
                 <p className="text-xs text-stone-400 mt-0.5">
-                  {chartMode === "dia" ? "Últimos 30 días" : "Últimos 12 meses"}
+                  {chartMode === "dia" ? "Este mes" : "Últimos 12 meses"}
                 </p>
               </div>
               <div className="flex rounded-lg overflow-hidden border border-stone-200">
@@ -576,7 +576,7 @@ export default function DashboardPage() {
               </div>
               <div>
                 <h2 className="text-sm font-semibold text-stone-800">Top Productos</h2>
-                <p className="text-xs text-stone-400">Últimos 30 días · por unidades</p>
+                <p className="text-xs text-stone-400">Este mes · por unidades</p>
               </div>
             </div>
 
