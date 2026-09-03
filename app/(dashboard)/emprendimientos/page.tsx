@@ -158,10 +158,13 @@ export default function EmprendimientosPage() {
   }
 
   const eliminar = async (emp: Emprendimiento) => {
-    if (!confirm(`¿Eliminar "${emp.nombre}"? Esta acción no se puede deshacer.`)) return
+    if (!confirm(
+      `¿Desactivar "${emp.nombre}"? Dejará de aparecer en pagos, liquidaciones y catálogo, ` +
+      `y sus productos se ocultarán del sistema. Su historial de ventas se conserva.`
+    )) return
     const { error } = await deleteEmprendimiento(emp.id!)
     if (error) { toast.error(`Error: ${error}`); return }
-    toast.success("Emprendimiento eliminado")
+    toast.success("Emprendimiento desactivado")
     cargarEmprendimientos()
   }
 

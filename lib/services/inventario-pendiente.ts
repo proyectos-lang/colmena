@@ -235,6 +235,7 @@ export async function buscarProductosByEmprendimiento(
     .from("productos")
     .select("id, nombre, codigo_barras, precio_venta_sugerido")
     .eq("emprendimiento_id", emprendimientoId)
+    .eq("activo", true)
     .or(`nombre.ilike.%${q}%,codigo_barras.eq.${q}`)
     .order("codigo_barras", { ascending: true })
     .limit(limit)
@@ -281,6 +282,7 @@ export async function getStockByEmprendimiento(
         .from('productos')
         .select('id, nombre, codigo_barras, precio_venta_sugerido')
         .eq('emprendimiento_id', emprendimientoId)
+        .eq('activo', true)
         .order('codigo_barras', { ascending: true })
         .range(from, from + PAGE - 1)
 

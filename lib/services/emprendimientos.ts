@@ -26,6 +26,7 @@ export async function getEmprendimientos(razonSocialId: number): Promise<Emprend
     .from("emprendimientos")
     .select("*")
     .eq("razon_social_id", razonSocialId)
+    .eq("activo", true)
     .order("nombre", { ascending: true })
 
   if (error) {
@@ -90,13 +91,43 @@ export async function saveEmprendimiento(
   }
 }
 
+/**
+ * "Eliminar" un emprendimiento = DESACTIVARLO (baja logica). No borra la fila
+ * ni sus ventas: conserva el historial. Efectos:
+ *  - Oculta sus productos (baja logica) → salen de catalogo, POS, inventario y restock.
+ *  - Bloquea el login de sus usuarios del portal.
+ *  - Borra sus alquileres PENDIENTES (los pagados quedan como historial).
+ *  - Marca el emprendimiento como inactivo → desaparece de listados y selectores.
+ */
 export async function deleteEmprendimiento(id: number): Promise<{ error: string | null }> {
   const supabase = createAdminClient()
   if (!supabase) return { error: "Cliente admin no disponible" }
 
+  // 1. Ocultar productos del emprendimiento (baja logica; el historial de ventas
+  //    los sigue referenciando para mostrar nombre/precio).
+  await supabase
+    .from("productos")
+    .update({ activo: false })
+    .eq("emprendimiento_id", id)
+
+  // 2. Bloquear el acceso al portal de sus usuarios (cierra sesion activa).
+  await supabase
+    .from("emprendedores_usuarios")
+    .update({ activo: false, session_token: null, token_expires_at: null })
+    .eq("emprendimiento_id", id)
+
+  // 3. Borrar los alquileres PENDIENTES para que salgan de pagos/liquidaciones.
+  //    Los pagados se conservan como historial.
+  await supabase
+    .from("pagos_alquiler_emprendimientos")
+    .delete()
+    .eq("emprendimiento_id", id)
+    .eq("estado", "pendiente")
+
+  // 4. Desactivar el emprendimiento (paso critico: reportamos su error).
   const { error } = await supabase
     .from("emprendimientos")
-    .delete()
+    .update({ activo: false })
     .eq("id", id)
 
   return { error: error?.message ?? null }

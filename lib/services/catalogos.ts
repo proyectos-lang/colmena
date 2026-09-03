@@ -121,6 +121,7 @@ export async function getProductos(
     let q = supabase!
       .from('productos')
       .select(selectStr, { count: 'exact' })
+      .eq('activo', true)
       .order('codigo_barras', { ascending: true })
 
     if (opts?.search?.trim()) {
@@ -227,6 +228,7 @@ export async function buscarProductos(
     let q = supabase
       .from('productos')
       .select('*, marcas(nombre), categorias(nombre), emprendimientos(nombre)', { count: 'exact' })
+      .eq('activo', true)
       .order('nombre', { ascending: true })
 
     if (query.trim()) {
@@ -291,6 +293,7 @@ export async function getProductoPorCodigo(
       .from('productos')
       .select('*, marcas(nombre), categorias(nombre), emprendimientos(nombre)')
       .eq('codigo_barras', codigo.trim())
+      .eq('activo', true)
       .limit(1)
       .maybeSingle()
 

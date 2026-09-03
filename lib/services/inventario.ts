@@ -202,6 +202,7 @@ export async function getValoracionInventarioExtendida(): Promise<{ data: Produc
       const { data: batch, error: prodError } = await supabase
         .from('productos')
         .select('id, nombre, codigo_barras, costo_promedio, precio_venta_sugerido, emprendimiento_id, emprendimientos(nombre)')
+        .eq('activo', true)
         .order('nombre', { ascending: true })
         .range(prodFrom, prodFrom + PAGE - 1)
       if (prodError) return { data: [], error: prodError.message }
@@ -391,6 +392,7 @@ export async function getValoracionPorAlmacen(almacenId: number): Promise<{ data
       const { data: batch, error: prodError } = await supabase
         .from('productos')
         .select('id, nombre, codigo_barras, costo_promedio, precio_venta_sugerido, emprendimiento_id, emprendimientos(nombre)')
+        .eq('activo', true)
         .order('nombre', { ascending: true })
         .range(prodFrom, prodFrom + PAGE - 1)
       if (prodError) return { data: [], error: prodError.message }
@@ -516,6 +518,7 @@ export async function getValoracionInventario(): Promise<{ data: ProductoValorac
     const { data, error } = await supabase
       .from('productos')
       .select('id, nombre, codigo_barras, stock_total, costo_promedio')
+      .eq('activo', true)
       .order('nombre', { ascending: true })
 
     if (error) return { data: [], error: error.message }

@@ -348,6 +348,7 @@ export async function checkCodigosBarrasDuplicados(
   const { data, error } = await supabase
     .from('productos')
     .select('codigo_barras')
+    .eq('activo', true)
     .in('codigo_barras', codigos)
 
   if (error) throw new Error(error.message)
